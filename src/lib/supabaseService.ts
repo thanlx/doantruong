@@ -568,11 +568,16 @@ export async function signInWithGoogleOAuth(): Promise<{ error: string | null }>
   }
 
   try {
-    const redirectOrigin = typeof window !== 'undefined' ? window.location.origin : '';
+    // Xác định URL điều hướng về: nếu trên trình duyệt thì lấy chính xác window.location.origin
+    let redirectUrl = 'https://yhcm-ute2.vercel.app';
+    if (typeof window !== 'undefined') {
+      redirectUrl = window.location.origin;
+    }
+
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: redirectOrigin,
+        redirectTo: redirectUrl,
         queryParams: {
           access_type: 'offline',
           prompt: 'consent',
