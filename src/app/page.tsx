@@ -102,7 +102,7 @@ export default function Home() {
         <Header onOpenMobileMenu={() => setIsMobileDrawerOpen(true)} />
 
         {/* Thân cuộn trang */}
-        <main className="flex-1 overflow-y-auto px-4 sm:px-6 lg:px-8 py-6 scrollbar-thin">
+        <main className="flex-1 overflow-y-auto px-3 sm:px-6 lg:px-8 pt-3 sm:pt-6 pb-24 md:pb-8 scrollbar-thin">
           <div className="max-w-7xl mx-auto">
             {renderCurrentView()}
           </div>

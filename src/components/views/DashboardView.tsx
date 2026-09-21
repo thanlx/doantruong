@@ -180,7 +180,7 @@ export default function DashboardView() {
       </div>
 
       {/* 2. DẢI NÚT THAO TÁC NHANH (QUICK ACTIONS TOOLBAR) */}
-      <div className="flex items-center gap-2.5 overflow-x-auto pb-1 scrollbar-thin">
+      <div className="flex items-center gap-2 sm:gap-2.5 overflow-x-auto pb-1 scrollbar-none snap-x -mx-1 px-1">
         <button
           onClick={() => setIsCreateTaskModalOpen(true)}
           className="px-4 py-2.5 rounded-2xl bg-primary text-primary-foreground font-bold text-xs flex items-center gap-2 shadow-sm hover:bg-primary/90 transition-all active:scale-95 shrink-0"
@@ -320,8 +320,8 @@ export default function DashboardView() {
               </div>
             </div>
 
-            {/* Bảng danh sách */}
-            <div className="overflow-x-auto">
+            {/* Bảng danh sách trên Desktop */}
+            <div className="hidden sm:block overflow-x-auto">
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="border-b border-border text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
@@ -376,6 +376,52 @@ export default function DashboardView() {
                   )}
                 </tbody>
               </table>
+            </div>
+
+            {/* Danh sách thẻ dạng Card tối ưu riêng cho điện thoại di động */}
+            <div className="sm:hidden divide-y divide-border -mx-1">
+              {recentTasks.length === 0 ? (
+                <div className="py-6 text-center text-xs text-muted-foreground">
+                  Chưa có công việc nào. Bấm <b>+ Giao việc mới</b> ở trên!
+                </div>
+              ) : (
+                recentTasks.map((t) => {
+                  const owner = members.find((m) => m.id === t.owner_id);
+                  return (
+                    <div
+                      key={t.id}
+                      onClick={() => setSelectedTaskId(t.id)}
+                      className="py-3 px-2 active:bg-muted/50 rounded-xl transition-colors cursor-pointer space-y-2"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-start gap-2 flex-1 min-w-0">
+                          <span className={`w-2 h-2 rounded-full shrink-0 mt-1.5 ${getPriorityDot(t.priority)}`} />
+                          <h4 className="text-xs font-bold text-foreground leading-snug line-clamp-2">
+                            {t.title}
+                          </h4>
+                        </div>
+                        <div className="shrink-0">{getStatusBadge(t)}</div>
+                      </div>
+
+                      <div className="flex items-center justify-between text-[11px] text-muted-foreground pt-0.5">
+                        <div className="flex items-center gap-1.5">
+                          <img
+                            src={owner?.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100'}
+                            alt={owner?.full_name || 'BTV'}
+                            className="w-5 h-5 rounded-full object-cover ring-1 ring-border"
+                          />
+                          <span className="font-medium text-foreground truncate max-w-[120px]">
+                            {owner?.full_name || 'Chưa gán'}
+                          </span>
+                        </div>
+                        <span className="font-mono text-[10px]">
+                          {t.due_at ? format(new Date(t.due_at), 'dd/MM/yyyy') : 'Linh hoạt'}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
             </div>
           </div>
 

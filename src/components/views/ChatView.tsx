@@ -32,7 +32,7 @@ export default function ChatView() {
   };
 
   return (
-    <div className="h-[calc(100vh-140px)] flex flex-col bg-card rounded-3xl border border-border shadow-xs overflow-hidden">
+    <div className="h-[calc(100dvh-175px)] md:h-[calc(100vh-140px)] flex flex-col bg-card rounded-3xl border border-border shadow-xs overflow-hidden">
       {/* Header kênh chat */}
       <div className="px-6 py-3.5 border-b border-border flex items-center justify-between bg-muted/40 shrink-0">
         <div className="flex items-center gap-3">

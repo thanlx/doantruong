@@ -148,7 +148,7 @@ export default function CalendarView() {
           </div>
 
           {/* Grid 30 ngày Tháng 9/2025 */}
-          <div className="grid grid-cols-7 gap-2 text-center text-sm font-semibold">
+          <div className="grid grid-cols-7 gap-1 sm:gap-2 text-center text-xs sm:text-sm font-semibold">
             {Array.from({ length: 30 }, (_, i) => i + 1).map((day) => {
               const isSelected = selectedDay === day;
               const hasEvents = Boolean(scheduleEvents[day]);
@@ -162,13 +162,13 @@ export default function CalendarView() {
                 <button
                   key={day}
                   onClick={() => setSelectedDay(day)}
-                  className={`min-h-[56px] sm:min-h-[70px] p-2 rounded-2xl flex flex-col items-center justify-between transition-all relative ${
+                  className={`min-h-[44px] sm:min-h-[68px] p-1 sm:p-2 rounded-xl sm:rounded-2xl flex flex-col items-center justify-between transition-all relative ${
                     isSelected
                       ? 'bg-primary text-primary-foreground shadow-sm scale-102 font-bold'
                       : 'hover:bg-muted text-foreground border border-border/60'
                   }`}
                 >
-                  <span className="text-xs font-bold">{day}</span>
+                  <span className="text-[11px] sm:text-xs font-bold">{day}</span>
 
                   <div className="flex items-center gap-1 mt-1">
                     {hasEvents && (

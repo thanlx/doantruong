@@ -19,6 +19,7 @@ import {
   BarChart3,
   Smartphone,
   Settings,
+  ShieldAlert,
   X,
 } from 'lucide-react';
 
@@ -27,6 +28,7 @@ export default function BottomNav() {
   const [showMoreMenu, setShowMoreMenu] = useState(false);
 
   const moreItems = [
+    { id: 'admin', label: 'Quản trị Admin', icon: ShieldAlert },
     { id: 'viec_cua_toi', label: 'Việc của tôi', icon: CheckSquare },
     { id: 'dieu_phoi', label: 'Bảng điều phối', icon: Compass },
     { id: 'van_ban_den', label: 'Sổ văn bản đến', icon: FileText },

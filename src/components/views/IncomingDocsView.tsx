@@ -210,9 +210,9 @@ export default function IncomingDocsView() {
         </select>
       </div>
 
-      {/* BẢNG 8 CỘT GỐC CHUẨN EXCEL */}
+      {/* BẢNG 8 CỘT GỐC CHUẨN EXCEL (HIỂN THỊ TRÊN DESKTOP/TABLET) */}
       <div className="bg-card rounded-3xl border border-border shadow-xs overflow-hidden">
-        <div className="overflow-x-auto">
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="bg-muted/50 border-b border-border text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
@@ -295,6 +295,89 @@ export default function IncomingDocsView() {
               })}
             </tbody>
           </table>
+        </div>
+
+        {/* DANH SÁCH THẺ DẠNG CARD TRÊN ĐIỆN THOẠI DI ĐỘNG */}
+        <div className="md:hidden divide-y divide-border">
+          {filteredDocs.length === 0 ? (
+            <div className="p-8 text-center text-xs text-muted-foreground">
+              Không có văn bản nào phù hợp.
+            </div>
+          ) : (
+            filteredDocs.map((doc, idx) => {
+              const isUnassigned =
+                doc.nguoi_nhan_xu_ly?.toLowerCase().includes('xin ý kiến') || !doc.nguoi_nhan_xu_ly;
+              const status = getDocumentStatus(doc.id);
+
+              return (
+                <div key={doc.id} className="p-4 space-y-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-mono font-bold bg-muted px-2 py-0.5 rounded text-muted-foreground">
+                        #{idx + 1}
+                      </span>
+                      <span className="font-mono text-xs font-bold text-primary">
+                        {doc.so_ky_hieu || 'Chưa có số'}
+                      </span>
+                    </div>
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${status.color}`}>
+                      {status.label}
+                    </span>
+                  </div>
+
+                  <div>
+                    <h4 className="text-xs font-bold text-foreground leading-snug line-clamp-3">
+                      {doc.noi_dung}
+                    </h4>
+                    {doc.ghi_chu && (
+                      <p className="text-[10px] text-muted-foreground italic mt-1">
+                        Ghi chú: {doc.ghi_chu}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 text-[11px] bg-muted/40 p-2.5 rounded-xl border border-border">
+                    <div>
+                      <span className="text-[10px] text-muted-foreground block">Đơn vị gửi:</span>
+                      <span className="font-semibold text-foreground truncate block">{doc.don_vi_gui}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-muted-foreground block">Ngày nhận:</span>
+                      <span className="font-mono text-foreground block">
+                        {doc.ngay_nhan ? format(new Date(doc.ngay_nhan), 'dd/MM/yyyy') : '-'}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-muted-foreground block">Người xử lý:</span>
+                      {isUnassigned ? (
+                        <span className="text-amber-600 dark:text-amber-400 font-bold">Xin ý kiến BTV</span>
+                      ) : (
+                        <span className="font-semibold text-foreground">{doc.nguoi_nhan_xu_ly}</span>
+                      )}
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-muted-foreground block">Hạn chót:</span>
+                      {doc.thoi_han_xu_ly ? (
+                        <span className="text-destructive font-bold">
+                          {format(new Date(doc.thoi_han_xu_ly), 'dd/MM HH:mm')}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">Không có</span>
+                      )}
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => openAssignModal(doc)}
+                    className="w-full py-2 rounded-xl bg-primary text-primary-foreground text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm active:scale-98 transition-transform"
+                  >
+                    <UserPlus className="w-4 h-4" />
+                    <span>Giao việc từ văn bản này</span>
+                  </button>
+                </div>
+              );
+            })
+          )}
         </div>
       </div>
 

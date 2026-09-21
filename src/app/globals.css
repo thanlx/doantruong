@@ -120,9 +120,17 @@ body {
   color: var(--foreground);
   font-family: var(--font-sans);
   min-height: 100vh;
+  min-height: 100dvh;
   margin: 0;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* Tối ưu cảm ứng cho nút bấm trên di động */
+button, a, [role="button"] {
+  touch-action: manipulation;
 }
 
 /* ==============================================================================
@@ -150,7 +158,20 @@ input, textarea, select {
   background: var(--muted-foreground);
 }
 
-/* Hỗ trợ an toàn cho mobile iOS */
-.pb-safe {
-  padding-bottom: env(safe-area-inset-bottom, 1rem);
+/* Tiện ích ẩn scrollbar nhưng vẫn cuộn cảm ứng mượt mà */
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+/* Hỗ trợ an toàn cho mobile iOS PWA */
+.pb-safe {
+  padding-bottom: max(env(safe-area-inset-bottom, 0px), 0.75rem);
+}
+.pt-safe {
+  padding-top: max(env(safe-area-inset-top, 0px), 0.5rem);
+}
+
