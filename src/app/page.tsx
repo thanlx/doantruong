@@ -23,13 +23,23 @@ import MembersView from '@/components/views/MembersView';
 import ReportsView from '@/components/views/ReportsView';
 import IosGuideView from '@/components/views/IosGuideView';
 import SettingsView from '@/components/views/SettingsView';
+import AdminView from '@/components/views/AdminView';
 
 // Modals
 import TaskDetailModal from '@/components/modals/TaskDetailModal';
 import CreateTaskModal from '@/components/modals/CreateTaskModal';
+import CreateIncomingDocModal from '@/components/modals/CreateIncomingDocModal';
+import CreateCampaignModal from '@/components/modals/CreateCampaignModal';
 
 export default function Home() {
-  const { activeTab, setActiveTab } = useApp();
+  const {
+    activeTab,
+    setActiveTab,
+    isCreateDocModalOpen,
+    setIsCreateDocModalOpen,
+    isCreateCampaignModalOpen,
+    setIsCreateCampaignModalOpen,
+  } = useApp();
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
 
   // Chọn view tương ứng với tab
@@ -53,6 +63,8 @@ export default function Home() {
         return <ChatView />;
       case 'thanh_vien':
         return <MembersView />;
+      case 'admin':
+        return <AdminView />;
       case 'bao_cao':
         return <ReportsView />;
       case 'huong_dan_ios':
@@ -103,6 +115,14 @@ export default function Home() {
       {/* 5. CÁC MODAL HỆ THỐNG */}
       <TaskDetailModal />
       <CreateTaskModal />
+      <CreateIncomingDocModal
+        isOpen={isCreateDocModalOpen}
+        onClose={() => setIsCreateDocModalOpen(false)}
+      />
+      <CreateCampaignModal
+        isOpen={isCreateCampaignModalOpen}
+        onClose={() => setIsCreateCampaignModalOpen(false)}
+      />
     </div>
   );
 }

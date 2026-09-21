@@ -21,6 +21,7 @@ import {
   Smartphone,
   Settings,
   Sparkles,
+  ShieldAlert,
 } from 'lucide-react';
 
 export default function Sidebar() {
@@ -48,6 +49,7 @@ export default function Sidebar() {
     },
     { id: 'chat', label: 'Chat nhóm BTV', icon: MessageSquare },
     { id: 'thanh_vien', label: 'Thành viên', icon: Users },
+    { id: 'admin', label: 'Quản trị Admin', icon: ShieldAlert, badge: 'Admin', badgeColor: 'bg-destructive text-destructive-foreground' },
     { id: 'bao_cao', label: 'Báo cáo & Thống kê', icon: BarChart3 },
     { id: 'huong_dan_ios', label: 'Cài đặt iOS (PWA)', icon: Smartphone },
     { id: 'cai_dat', label: 'Cài đặt & Tài khoản', icon: Settings },

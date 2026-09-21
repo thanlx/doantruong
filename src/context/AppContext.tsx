@@ -1,8 +1,7 @@
 'use client';
 
 // ==============================================================================
-// APP CONTEXT: QUẢN LÝ DỮ LIỆU, XÁC THỰC GOOGLE OAUTH & REALTIME SUPABASE
-// Hỗ trợ lưu trữ vĩnh viễn trên Supabase, đồng bộ tức thời và chế độ Offline
+// APP CONTEXT: QUẢN LÝ DỮ LIỆU, ADMIN CRUD, REALTIME SUPABASE & WEB NOTIFICATION
 // ==============================================================================
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
@@ -17,6 +16,7 @@ import {
   TaskStatus,
   TaskPriority,
   ApprovalScope,
+  MemberRole,
 } from '@/types';
 import {
   INITIAL_MEMBERS,
@@ -27,6 +27,7 @@ import {
   INITIAL_NOTIFICATIONS,
 } from '@/lib/mockData';
 import { checkCanManualRemind } from '@/lib/notifications';
+import { sendMobileNotification } from '@/lib/pushNotifications';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import {
   fetchTasksFromSupabase,
@@ -68,6 +69,19 @@ interface AppContextType {
   currentMember: Member;
   setCurrentMemberId: (id: string) => void;
 
+  // CRUD Thành viên (Dành cho Admin)
+  addMember: (memberData: Partial<Member>) => Member;
+  updateMember: (memberId: string, updates: Partial<Member>) => void;
+  deleteMember: (memberId: string) => void;
+
+  // CRUD Mục lục / Mảng việc / Dự án
+  addCampaign: (campData: Partial<Campaign>) => Campaign;
+  updateCampaign: (campId: string, updates: Partial<Campaign>) => void;
+  deleteCampaign: (campId: string) => void;
+
+  // Xóa danh sách ảo (Làm sạch dữ liệu)
+  clearDummyData: () => Promise<void>;
+
   // Xác thực Google OAuth
   authUser: any;
   isAuthLoading: boolean;
@@ -97,6 +111,10 @@ interface AppContextType {
   setSelectedTaskId: (id: string | null) => void;
   isCreateTaskModalOpen: boolean;
   setIsCreateTaskModalOpen: (open: boolean) => void;
+  isCreateDocModalOpen: boolean;
+  setIsCreateDocModalOpen: (open: boolean) => void;
+  isCreateCampaignModalOpen: boolean;
+  setIsCreateCampaignModalOpen: (open: boolean) => void;
 
   // Thao tác Công việc (Ghi vĩnh viễn Supabase + Realtime)
   addTask: (task: Partial<Task> & { collaborator_ids?: string[] }) => Task;
@@ -160,7 +178,6 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
-  // Khởi tạo state với dữ liệu mẫu từ mockData
   const [members, setMembers] = useState<Member[]>(INITIAL_MEMBERS);
   const [currentMemberId, setCurrentMemberId] = useState<string>('11111111-1111-1111-1111-111111111111');
   const [tasks, setTasks] = useState<Task[]>(INITIAL_TASKS);
@@ -178,18 +195,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [isSupabaseConnected, setIsSupabaseConnected] = useState<boolean>(isSupabaseConfigured);
   const [isRealtimeLive, setIsRealtimeLive] = useState<boolean>(false);
 
+  // Điều hướng & Modals
   const [activeTab, setActiveTab] = useState<string>('trang_chu');
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [isCreateTaskModalOpen, setIsCreateTaskModalOpen] = useState<boolean>(false);
+  const [isCreateDocModalOpen, setIsCreateDocModalOpen] = useState<boolean>(false);
+  const [isCreateCampaignModalOpen, setIsCreateCampaignModalOpen] = useState<boolean>(false);
 
   // ----------------------------------------------------------------------------
-  // 1. TẢI DỮ LIỆU TỪ SUPABASE (HOẶC LOCALSTORAGE NẾU OFFLINE)
+  // 1. TẢI DỮ LIỆU TỪ SUPABASE
   // ----------------------------------------------------------------------------
   const refreshDataFromSupabase = useCallback(async () => {
     if (!isSupabaseConfigured) return;
 
     try {
-      // Tự động kiểm tra và seed nếu database trên Supabase đang trống
       await seedSupabaseIfEmpty();
 
       const [dbTasks, dbChat, dbDocs, dbComments, dbLogs, dbMembers, dbCampaigns] = await Promise.all([
@@ -220,7 +239,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // 2. KHỞI TẠO SESSION GOOGLE AUTH & REALTIME WEBSOCKET
   // ----------------------------------------------------------------------------
   useEffect(() => {
-    // Khởi tạo từ LocalStorage trước để hiển thị ngay tức thì
     if (typeof window !== 'undefined') {
       const savedTasks = localStorage.getItem('btv_tasks');
       if (savedTasks) {
@@ -236,15 +254,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
-    // Tải dữ liệu cloud từ Supabase
     refreshDataFromSupabase();
 
-    // Lắng nghe phiên đăng nhập Google Auth từ Supabase
     if (supabase && isSupabaseConfigured) {
       supabase.auth.getSession().then(({ data: { session } }) => {
         if (session?.user) {
           setAuthUser(session.user);
-          // Tự động khớp email Google với 9 thành viên BTV
           if (session.user.email) {
             const userEmail = session.user.email.toLowerCase();
             const matched = INITIAL_MEMBERS.find((m) => m.email.toLowerCase() === userEmail);
@@ -274,7 +289,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setIsAuthLoading(false);
       });
 
-      // Đăng ký nhận sự kiện Realtime đa thiết bị
       const unsubscribeRealtime = subscribeToBTVRealtime({
         onTaskInsert: (newTask) => {
           setTasks((prev) => {
@@ -301,7 +315,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             if (prev.some((c) => c.id === newComment.id)) return prev;
             return [...prev, newComment];
           });
-          // Tăng biến đếm comment
           setTasks((prev) =>
             prev.map((t) =>
               t.id === newComment.task_id
@@ -338,7 +351,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [refreshDataFromSupabase]);
 
-  // Lưu trữ LocalStorage dự phòng offline
   useEffect(() => {
     if (typeof window !== 'undefined') {
       localStorage.setItem('btv_tasks', JSON.stringify(tasks));
@@ -360,7 +372,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const currentMember = members.find((m) => m.id === currentMemberId) || members[0];
 
   // ----------------------------------------------------------------------------
-  // 3. THAO TÁC GOOGLE AUTH (ĐĂNG NHẬP / ĐĂNG XUẤT)
+  // 3. THAO TÁC GOOGLE AUTH
   // ----------------------------------------------------------------------------
   const signInWithGoogle = async () => {
     return await signInWithGoogleOAuth();
@@ -372,7 +384,130 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
 
   // ----------------------------------------------------------------------------
-  // 4. THAO TÁC CÔNG VIỆC (GHI VĨNH VIỄN LÊN SUPABASE + REALTIME)
+  // 4. QUẢN TRỊ THÀNH VIÊN (ADMIN CRUD)
+  // ----------------------------------------------------------------------------
+  const addMember = (memberData: Partial<Member>): Member => {
+    const newMember: Member = {
+      id: generateUUID(),
+      email: memberData.email || `btv_${Date.now()}@hcmute.edu.vn`,
+      full_name: memberData.full_name || 'Đồng chí BTV',
+      role: memberData.role || 'uy_vien',
+      mang_phu_trach: memberData.mang_phu_trach || 'van_phong',
+      phone: memberData.phone || '0901234567',
+      avatar_url: memberData.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150',
+      active: memberData.active ?? true,
+      alias: memberData.alias || [memberData.full_name || 'Đ/c mới'],
+      created_at: new Date().toISOString(),
+    };
+
+    setMembers((prev) => [...prev, newMember]);
+    if (supabase && isSupabaseConfigured) {
+      supabase.from('members').insert(newMember).then(() => {});
+    }
+    return newMember;
+  };
+
+  const updateMember = (memberId: string, updates: Partial<Member>) => {
+    setMembers((prev) =>
+      prev.map((m) => (m.id === memberId ? { ...m, ...updates } : m))
+    );
+    if (supabase && isSupabaseConfigured) {
+      supabase.from('members').update(updates).eq('id', memberId).then(() => {});
+    }
+  };
+
+  const deleteMember = (memberId: string) => {
+    setMembers((prev) => prev.filter((m) => m.id !== memberId));
+    if (supabase && isSupabaseConfigured) {
+      supabase.from('members').delete().eq('id', memberId).then(() => {});
+    }
+  };
+
+  // ----------------------------------------------------------------------------
+  // 5. QUẢN TRỊ MẢNG VIỆC / CHIẾN DỊCH (CAMPAIGNS CRUD)
+  // ----------------------------------------------------------------------------
+  const addCampaign = (campData: Partial<Campaign>): Campaign => {
+    const newCamp: Campaign = {
+      id: generateUUID(),
+      name: campData.name || 'Mảng việc mới',
+      description: campData.description || '',
+      start_date: campData.start_date || new Date().toISOString().split('T')[0],
+      end_date: campData.end_date || '',
+      status: campData.status || 'dang_chay',
+      color: campData.color || '#0284c7',
+      created_by: currentMember.id,
+      created_at: new Date().toISOString(),
+    };
+
+    setCampaigns((prev) => [newCamp, ...prev]);
+    if (supabase && isSupabaseConfigured) {
+      supabase.from('campaigns').insert(newCamp).then(() => {});
+    }
+    return newCamp;
+  };
+
+  const updateCampaign = (campId: string, updates: Partial<Campaign>) => {
+    setCampaigns((prev) =>
+      prev.map((c) => (c.id === campId ? { ...c, ...updates } : c))
+    );
+    if (supabase && isSupabaseConfigured) {
+      supabase.from('campaigns').update(updates).eq('id', campId).then(() => {});
+    }
+  };
+
+  const deleteCampaign = (campId: string) => {
+    setCampaigns((prev) => prev.filter((c) => c.id !== campId));
+    if (supabase && isSupabaseConfigured) {
+      supabase.from('campaigns').delete().eq('id', campId).then(() => {});
+    }
+  };
+
+  // ----------------------------------------------------------------------------
+  // 6. XÓA & DỌN DẸP TOÀN BỘ DANH SÁCH ẢO
+  // ----------------------------------------------------------------------------
+  const clearDummyData = async () => {
+    // Lọc bỏ các task mẫu ảo (các task có ID bắt đầu bằng 'a' từ mock data hoặc do mock sinh ra)
+    const realTasks = tasks.filter(
+      (t) => !t.id.startsWith('a1') && !t.id.startsWith('a2') && !t.id.startsWith('a3') &&
+             !t.id.startsWith('a4') && !t.id.startsWith('a5') && !t.id.startsWith('a6')
+    );
+    setTasks(realTasks);
+
+    // Lọc bỏ văn bản mẫu ảo
+    const realDocs = incomingDocs.filter(
+      (d) => !d.id.startsWith('d1') && !d.id.startsWith('d2') && !d.id.startsWith('d3') && !d.id.startsWith('d4')
+    );
+    setIncomingDocs(realDocs);
+
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('btv_tasks', JSON.stringify(realTasks));
+      localStorage.setItem('btv_docs', JSON.stringify(realDocs));
+    }
+
+    if (supabase && isSupabaseConfigured) {
+      try {
+        await supabase.from('tasks').delete().in('id', [
+          'a1111111-1111-1111-1111-111111111111',
+          'a2222222-2222-2222-2222-222222222222',
+          'a3333333-3333-3333-3333-333333333333',
+          'a4444444-4444-4444-4444-444444444444',
+          'a5555555-5555-5555-5555-555555555555',
+          'a6666666-6666-6666-6666-666666666666',
+        ]);
+        await supabase.from('incoming_documents').delete().in('id', [
+          'd1111111-1111-1111-1111-111111111111',
+          'd2222222-2222-2222-2222-222222222222',
+          'd3333333-3333-3333-3333-333333333333',
+          'd4444444-4444-4444-4444-444444444444',
+        ]);
+      } catch (err) {
+        console.warn('Lỗi dọn dẹp Supabase dummy data:', err);
+      }
+    }
+  };
+
+  // ----------------------------------------------------------------------------
+  // 7. THAO TÁC CÔNG VIỆC (GHI VĨNH VIỄN LÊN SUPABASE + REALTIME + NOTIFICATION)
   // ----------------------------------------------------------------------------
 
   const addTask = (taskData: Partial<Task> & { collaborator_ids?: string[] }): Task => {
@@ -395,10 +530,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       comments_count: 0,
     };
 
-    // Optimistic UI update
     setTasks((prev) => [newTask, ...prev]);
 
-    // Ghi nhật ký
     const log: ActivityLog = {
       id: generateUUID(),
       task_id: newTask.id,
@@ -410,9 +543,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
     setActivityLogs((prev) => [log, ...prev]);
 
-    // Ghi vĩnh viễn lên Supabase
     insertTaskToSupabase(newTask);
     insertActivityLogToSupabase(log);
+
+    // Gửi thông báo đẩy đến điện thoại của người được giao việc
+    const assignedMember = members.find((m) => m.id === newTask.owner_id);
+    sendMobileNotification({
+      title: `Nhiệm vụ mới: ${newTask.title}`,
+      body: `Đ/c ${currentMember.full_name} đã giao việc cho ${assignedMember?.full_name || 'đồng chí'}. Hạn chót: ${newTask.due_at ? newTask.due_at.slice(0, 10) : 'Không có'}`,
+      tag: `task-${newTask.id}`,
+    });
 
     return newTask;
   };
@@ -431,7 +571,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       })
     );
 
-    // Ghi lên Supabase
     updateTaskOnSupabase(taskId, updates);
   };
 
@@ -440,7 +579,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (selectedTaskId === taskId) {
       setSelectedTaskId(null);
     }
-    // Xóa trên Supabase
     deleteTaskFromSupabase(taskId);
   };
 
@@ -484,7 +622,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     const role = currentMember.role;
 
-    // Kiểm tra thẩm quyền phê duyệt
     if (task.approval_scope === 'chuyen_mon') {
       if (role !== 'bi_thu' && role !== 'pho_bi_thu') {
         return {
@@ -583,6 +720,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
     setNotifications((prev) => [newNotification, ...prev]);
 
+    // Gửi thông báo rung chuông tới điện thoại
+    sendMobileNotification({
+      title: `Đôn đốc công việc: ${task.title}`,
+      body: `Đ/c ${currentMember.full_name} nhắc nhở: "${message}"`,
+      tag: `remind-${task.id}`,
+      requireInteraction: true,
+    });
+
     return {
       success: true,
       message: `Đã gửi đôn đốc thành công qua Web Push và Email tới người phụ trách!`,
@@ -590,7 +735,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
 
   // ----------------------------------------------------------------------------
-  // 5. THAO TÁC VĂN BẢN ĐẾN & CHUYỂN XỬ LÝ
+  // 8. THAO TÁC VĂN BẢN ĐẾN & GIAO VIỆC
   // ----------------------------------------------------------------------------
 
   const addIncomingDoc = (docData: Partial<IncomingDocument>): IncomingDocument => {
@@ -659,7 +804,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
 
   // ----------------------------------------------------------------------------
-  // 6. THAO TÁC BÌNH LUẬN & CHAT NHÓM BTV
+  // 9. THAO TÁC BÌNH LUẬN & CHAT NHÓM BTV
   // ----------------------------------------------------------------------------
 
   const addComment = (taskId: string, body: string) => {
@@ -696,7 +841,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
 
   // ----------------------------------------------------------------------------
-  // 7. TRỢ GIÚP THỐNG KÊ & PHÂN TÍCH TIẾN ĐỘ
+  // 10. TRỢ GIÚP THỐNG KÊ & PHÂN TÍCH TIẾN ĐỘ
   // ----------------------------------------------------------------------------
 
   const getMyTasks = (memberId?: string) => {
@@ -878,6 +1023,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         members,
         currentMember,
         setCurrentMemberId,
+        addMember,
+        updateMember,
+        deleteMember,
+        addCampaign,
+        updateCampaign,
+        deleteCampaign,
+        clearDummyData,
         authUser,
         isAuthLoading,
         isAuthModalOpen,
@@ -900,6 +1052,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setSelectedTaskId,
         isCreateTaskModalOpen,
         setIsCreateTaskModalOpen,
+        isCreateDocModalOpen,
+        setIsCreateDocModalOpen,
+        isCreateCampaignModalOpen,
+        setIsCreateCampaignModalOpen,
         addTask,
         updateTask,
         deleteTask,
