@@ -1,10 +1,11 @@
 'use client';
 
 // ==============================================================================
-// APP CONTEXT: QUẢN LÝ DỮ LIỆU, PHÂN QUYỀN 4 VAI TRÒ & ĐỒNG BỘ TRẠNG THÁI
+// APP CONTEXT: QUẢN LÝ DỮ LIỆU, XÁC THỰC GOOGLE OAUTH & REALTIME SUPABASE
+// Hỗ trợ lưu trữ vĩnh viễn trên Supabase, đồng bộ tức thời và chế độ Offline
 // ==============================================================================
 
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import {
   Member,
   Task,
@@ -12,7 +13,6 @@ import {
   IncomingDocument,
   ChatMessage,
   TaskComment,
-  TaskAttachment,
   ActivityLog,
   TaskStatus,
   TaskPriority,
@@ -27,12 +27,59 @@ import {
   INITIAL_NOTIFICATIONS,
 } from '@/lib/mockData';
 import { checkCanManualRemind } from '@/lib/notifications';
+import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import {
+  fetchTasksFromSupabase,
+  fetchChatMessagesFromSupabase,
+  fetchIncomingDocsFromSupabase,
+  fetchCommentsFromSupabase,
+  fetchActivityLogsFromSupabase,
+  fetchMembersFromSupabase,
+  fetchCampaignsFromSupabase,
+  insertTaskToSupabase,
+  updateTaskOnSupabase,
+  deleteTaskFromSupabase,
+  insertChatMessageToSupabase,
+  insertIncomingDocToSupabase,
+  updateIncomingDocOnSupabase,
+  insertCommentToSupabase,
+  insertActivityLogToSupabase,
+  seedSupabaseIfEmpty,
+  subscribeToBTVRealtime,
+  signInWithGoogleOAuth,
+  signOutSupabase,
+} from '@/lib/supabaseService';
+
+// Hàm sinh mã UUID chuẩn RFC-4122 cho PostgreSQL
+function generateUUID(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
 
 interface AppContextType {
   // Thành viên & Người dùng hiện tại
   members: Member[];
   currentMember: Member;
   setCurrentMemberId: (id: string) => void;
+
+  // Xác thực Google OAuth
+  authUser: any;
+  isAuthLoading: boolean;
+  isAuthModalOpen: boolean;
+  setIsAuthModalOpen: (open: boolean) => void;
+  signInWithGoogle: () => Promise<{ error: string | null }>;
+  signOut: () => Promise<void>;
+
+  // Trạng thái kết nối Supabase Cloud & Realtime
+  isSupabaseConnected: boolean;
+  isRealtimeLive: boolean;
+  refreshDataFromSupabase: () => Promise<void>;
 
   // Dữ liệu cốt lõi
   tasks: Task[];
@@ -51,7 +98,7 @@ interface AppContextType {
   isCreateTaskModalOpen: boolean;
   setIsCreateTaskModalOpen: (open: boolean) => void;
 
-  // Thao tác Công việc
+  // Thao tác Công việc (Ghi vĩnh viễn Supabase + Realtime)
   addTask: (task: Partial<Task> & { collaborator_ids?: string[] }) => Task;
   updateTask: (taskId: string, updates: Partial<Task>) => void;
   deleteTask: (taskId: string) => void;
@@ -72,7 +119,7 @@ interface AppContextType {
     approvalScope?: ApprovalScope
   ) => Task[];
 
-  // Thao tác Thảo luận & Chat
+  // Thao tác Thảo luận & Chat Realtime
   addComment: (taskId: string, body: string) => void;
   sendChatMessage: (body: string, replyTo?: string) => void;
 
@@ -115,7 +162,6 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 export function AppProvider({ children }: { children: React.ReactNode }) {
   // Khởi tạo state với dữ liệu mẫu từ mockData
   const [members, setMembers] = useState<Member[]>(INITIAL_MEMBERS);
-  // Mặc định đăng nhập với vai trò Đ/c Lê Xuân Thân (Phó Bí thư) như trong thiết kế mẫu
   const [currentMemberId, setCurrentMemberId] = useState<string>('11111111-1111-1111-1111-111111111111');
   const [tasks, setTasks] = useState<Task[]>(INITIAL_TASKS);
   const [campaigns, setCampaigns] = useState<Campaign[]>(INITIAL_CAMPAIGNS);
@@ -125,12 +171,56 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
   const [comments, setComments] = useState<TaskComment[]>([]);
 
+  // Trạng thái Google Auth & Realtime
+  const [authUser, setAuthUser] = useState<any>(null);
+  const [isAuthLoading, setIsAuthLoading] = useState<boolean>(true);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
+  const [isSupabaseConnected, setIsSupabaseConnected] = useState<boolean>(isSupabaseConfigured);
+  const [isRealtimeLive, setIsRealtimeLive] = useState<boolean>(false);
+
   const [activeTab, setActiveTab] = useState<string>('trang_chu');
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [isCreateTaskModalOpen, setIsCreateTaskModalOpen] = useState<boolean>(false);
 
-  // Lưu trữ LocalStorage để giữ dữ liệu khi F5
+  // ----------------------------------------------------------------------------
+  // 1. TẢI DỮ LIỆU TỪ SUPABASE (HOẶC LOCALSTORAGE NẾU OFFLINE)
+  // ----------------------------------------------------------------------------
+  const refreshDataFromSupabase = useCallback(async () => {
+    if (!isSupabaseConfigured) return;
+
+    try {
+      // Tự động kiểm tra và seed nếu database trên Supabase đang trống
+      await seedSupabaseIfEmpty();
+
+      const [dbTasks, dbChat, dbDocs, dbComments, dbLogs, dbMembers, dbCampaigns] = await Promise.all([
+        fetchTasksFromSupabase(),
+        fetchChatMessagesFromSupabase(),
+        fetchIncomingDocsFromSupabase(),
+        fetchCommentsFromSupabase(),
+        fetchActivityLogsFromSupabase(),
+        fetchMembersFromSupabase(),
+        fetchCampaignsFromSupabase(),
+      ]);
+
+      if (dbTasks && dbTasks.length > 0) setTasks(dbTasks);
+      if (dbChat && dbChat.length > 0) setChatMessages(dbChat);
+      if (dbDocs && dbDocs.length > 0) setIncomingDocs(dbDocs);
+      if (dbComments && dbComments.length > 0) setComments(dbComments);
+      if (dbLogs && dbLogs.length > 0) setActivityLogs(dbLogs);
+      if (dbMembers && dbMembers.length > 0) setMembers(dbMembers);
+      if (dbCampaigns && dbCampaigns.length > 0) setCampaigns(dbCampaigns);
+
+      setIsSupabaseConnected(true);
+    } catch (e) {
+      console.warn('Không thể đồng bộ Supabase ban đầu, dùng Local cache:', e);
+    }
+  }, []);
+
+  // ----------------------------------------------------------------------------
+  // 2. KHỞI TẠO SESSION GOOGLE AUTH & REALTIME WEBSOCKET
+  // ----------------------------------------------------------------------------
   useEffect(() => {
+    // Khởi tạo từ LocalStorage trước để hiển thị ngay tức thì
     if (typeof window !== 'undefined') {
       const savedTasks = localStorage.getItem('btv_tasks');
       if (savedTasks) {
@@ -145,8 +235,110 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setCurrentMemberId(savedMemberId);
       }
     }
-  }, []);
 
+    // Tải dữ liệu cloud từ Supabase
+    refreshDataFromSupabase();
+
+    // Lắng nghe phiên đăng nhập Google Auth từ Supabase
+    if (supabase && isSupabaseConfigured) {
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        if (session?.user) {
+          setAuthUser(session.user);
+          // Tự động khớp email Google với 9 thành viên BTV
+          if (session.user.email) {
+            const userEmail = session.user.email.toLowerCase();
+            const matched = INITIAL_MEMBERS.find((m) => m.email.toLowerCase() === userEmail);
+            if (matched) {
+              setCurrentMemberId(matched.id);
+            }
+          }
+        }
+        setIsAuthLoading(false);
+      });
+
+      const {
+        data: { subscription },
+      } = supabase.auth.onAuthStateChange((_event, session) => {
+        if (session?.user) {
+          setAuthUser(session.user);
+          if (session.user.email) {
+            const userEmail = session.user.email.toLowerCase();
+            const matched = INITIAL_MEMBERS.find((m) => m.email.toLowerCase() === userEmail);
+            if (matched) {
+              setCurrentMemberId(matched.id);
+            }
+          }
+        } else {
+          setAuthUser(null);
+        }
+        setIsAuthLoading(false);
+      });
+
+      // Đăng ký nhận sự kiện Realtime đa thiết bị
+      const unsubscribeRealtime = subscribeToBTVRealtime({
+        onTaskInsert: (newTask) => {
+          setTasks((prev) => {
+            if (prev.some((t) => t.id === newTask.id)) return prev;
+            return [newTask, ...prev];
+          });
+        },
+        onTaskUpdate: (updatedTask) => {
+          setTasks((prev) =>
+            prev.map((t) => (t.id === updatedTask.id ? { ...t, ...updatedTask } : t))
+          );
+        },
+        onTaskDelete: (taskId) => {
+          setTasks((prev) => prev.filter((t) => t.id !== taskId));
+        },
+        onChatInsert: (newMsg) => {
+          setChatMessages((prev) => {
+            if (prev.some((m) => m.id === newMsg.id)) return prev;
+            return [...prev, newMsg];
+          });
+        },
+        onCommentInsert: (newComment) => {
+          setComments((prev) => {
+            if (prev.some((c) => c.id === newComment.id)) return prev;
+            return [...prev, newComment];
+          });
+          // Tăng biến đếm comment
+          setTasks((prev) =>
+            prev.map((t) =>
+              t.id === newComment.task_id
+                ? { ...t, comments_count: (t.comments_count || 0) + 1 }
+                : t
+            )
+          );
+        },
+        onDocInsert: (newDoc) => {
+          setIncomingDocs((prev) => {
+            if (prev.some((d) => d.id === newDoc.id)) return prev;
+            return [newDoc, ...prev];
+          });
+        },
+        onDocUpdate: (updatedDoc) => {
+          setIncomingDocs((prev) =>
+            prev.map((d) => (d.id === updatedDoc.id ? { ...d, ...updatedDoc } : d))
+          );
+        },
+        onLogInsert: (newLog) => {
+          setActivityLogs((prev) => [newLog, ...prev]);
+        },
+        onStatusChange: (status) => {
+          setIsRealtimeLive(status === 'SUBSCRIBED');
+        },
+      });
+
+      return () => {
+        subscription.unsubscribe();
+        unsubscribeRealtime();
+      };
+    } else {
+      setIsAuthLoading(false);
+    }
+  }, [refreshDataFromSupabase]);
+
+  // Lưu trữ LocalStorage dự phòng offline
   useEffect(() => {
     if (typeof window !== 'undefined') {
       localStorage.setItem('btv_tasks', JSON.stringify(tasks));
@@ -167,10 +359,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const currentMember = members.find((m) => m.id === currentMemberId) || members[0];
 
-  // Thêm công việc mới
+  // ----------------------------------------------------------------------------
+  // 3. THAO TÁC GOOGLE AUTH (ĐĂNG NHẬP / ĐĂNG XUẤT)
+  // ----------------------------------------------------------------------------
+  const signInWithGoogle = async () => {
+    return await signInWithGoogleOAuth();
+  };
+
+  const signOut = async () => {
+    await signOutSupabase();
+    setAuthUser(null);
+  };
+
+  // ----------------------------------------------------------------------------
+  // 4. THAO TÁC CÔNG VIỆC (GHI VĨNH VIỄN LÊN SUPABASE + REALTIME)
+  // ----------------------------------------------------------------------------
+
   const addTask = (taskData: Partial<Task> & { collaborator_ids?: string[] }): Task => {
+    const newId = generateUUID();
     const newTask: Task = {
-      id: 't-' + Date.now(),
+      id: newId,
       campaign_id: taskData.campaign_id || null,
       source_document_id: taskData.source_document_id || null,
       title: taskData.title || 'Công việc mới',
@@ -187,11 +395,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       comments_count: 0,
     };
 
+    // Optimistic UI update
     setTasks((prev) => [newTask, ...prev]);
 
     // Ghi nhật ký
     const log: ActivityLog = {
-      id: 'log-' + Date.now(),
+      id: generateUUID(),
       task_id: newTask.id,
       member_id: currentMember.id,
       action: 'created',
@@ -201,10 +410,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
     setActivityLogs((prev) => [log, ...prev]);
 
+    // Ghi vĩnh viễn lên Supabase
+    insertTaskToSupabase(newTask);
+    insertActivityLogToSupabase(log);
+
     return newTask;
   };
 
-  // Cập nhật công việc
   const updateTask = (taskId: string, updates: Partial<Task>) => {
     setTasks((prev) =>
       prev.map((task) => {
@@ -218,17 +430,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return task;
       })
     );
+
+    // Ghi lên Supabase
+    updateTaskOnSupabase(taskId, updates);
   };
 
-  // Xóa công việc
   const deleteTask = (taskId: string) => {
     setTasks((prev) => prev.filter((t) => t.id !== taskId));
     if (selectedTaskId === taskId) {
       setSelectedTaskId(null);
     }
+    // Xóa trên Supabase
+    deleteTaskFromSupabase(taskId);
   };
 
-  // Chuyển trạng thái
   const updateTaskStatus = (taskId: string, status: TaskStatus) => {
     const task = tasks.find((t) => t.id === taskId);
     if (!task) return;
@@ -247,7 +462,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     updateTask(taskId, updates);
 
     const log: ActivityLog = {
-      id: 'log-' + Date.now(),
+      id: generateUUID(),
       task_id: taskId,
       member_id: currentMember.id,
       action: 'status_changed',
@@ -256,23 +471,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       member: currentMember,
     };
     setActivityLogs((prev) => [log, ...prev]);
+    insertActivityLogToSupabase(log);
   };
 
-  // Nộp duyệt hoàn thành
   const submitTaskForApproval = (taskId: string) => {
     updateTaskStatus(taskId, 'cho_duyet');
   };
 
-  // Duyệt hoàn thành theo quy tắc approval_scope & role
   const approveTask = (taskId: string): { success: boolean; message?: string } => {
     const task = tasks.find((t) => t.id === taskId);
     if (!task) return { success: false, message: 'Không tìm thấy công việc' };
 
     const role = currentMember.role;
 
-    // Kiểm tra quyền hạn theo đặc tả:
-    // - Việc hành chính: Chánh VP, Phó Bí thư, Bí thư đều duyệt được
-    // - Việc chuyên môn: CHỈ Bí thư / Phó Bí thư được duyệt
+    // Kiểm tra thẩm quyền phê duyệt
     if (task.approval_scope === 'chuyen_mon') {
       if (role !== 'bi_thu' && role !== 'pho_bi_thu') {
         return {
@@ -290,14 +502,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
-    updateTask(taskId, {
-      status: 'hoan_thanh',
+    const updates = {
+      status: 'hoan_thanh' as TaskStatus,
       completed_at: new Date().toISOString(),
       approved_by: currentMember.id,
-    });
+    };
+
+    updateTask(taskId, updates);
 
     const log: ActivityLog = {
-      id: 'log-' + Date.now(),
+      id: generateUUID(),
       task_id: taskId,
       member_id: currentMember.id,
       action: 'approved',
@@ -306,27 +520,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       member: currentMember,
     };
     setActivityLogs((prev) => [log, ...prev]);
+    insertActivityLogToSupabase(log);
 
     return { success: true };
   };
 
-  // Từ chối duyệt, yêu cầu làm lại
   const rejectTask = (taskId: string, reason: string) => {
     updateTask(taskId, {
       status: 'dang_lam',
       submitted_at: null,
     });
 
-    // Thêm bình luận lý do
     addComment(taskId, `[YÊU CẦU LÀM LẠI] ${currentMember.full_name} đã yêu cầu bổ sung: "${reason}"`);
   };
 
-  // Đôn đốc thủ công
   const manualRemind = (taskId: string, message: string): { success: boolean; message: string } => {
     const task = tasks.find((t) => t.id === taskId);
     if (!task) return { success: false, message: 'Không tìm thấy công việc' };
 
-    // Kiểm tra vai trò: Chỉ Bí thư, Phó Bí thư, Chánh văn phòng được đôn đốc
     if (
       currentMember.role !== 'bi_thu' &&
       currentMember.role !== 'pho_bi_thu' &&
@@ -335,7 +546,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return { success: false, message: 'Chỉ Thường trực hoặc Chánh văn phòng mới có quyền đôn đốc công việc!' };
     }
 
-    // Tìm lần đôn đốc gần nhất của người này với công việc này
     const lastRemindLog = activityLogs.find(
       (l) => l.task_id === taskId && l.member_id === currentMember.id && l.action === 'don_doc'
     );
@@ -348,9 +558,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       };
     }
 
-    // Ghi nhật ký công khai
     const log: ActivityLog = {
-      id: 'log-' + Date.now(),
+      id: generateUUID(),
       task_id: taskId,
       member_id: currentMember.id,
       action: 'don_doc',
@@ -363,8 +572,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       member: currentMember,
     };
     setActivityLogs((prev) => [log, ...prev]);
+    insertActivityLogToSupabase(log);
 
-    // Thêm thông báo
     const newNotification = {
       id: 'n-' + Date.now(),
       title: `Đ/c ${currentMember.full_name} (${currentMember.role === 'chanh_van_phong' ? 'Chánh VP' : 'Thường trực'}) đã đôn đốc: "${task.title}"`,
@@ -380,10 +589,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
   };
 
-  // Thêm văn bản đến mới
+  // ----------------------------------------------------------------------------
+  // 5. THAO TÁC VĂN BẢN ĐẾN & CHUYỂN XỬ LÝ
+  // ----------------------------------------------------------------------------
+
   const addIncomingDoc = (docData: Partial<IncomingDocument>): IncomingDocument => {
     const newDoc: IncomingDocument = {
-      id: 'doc-' + Date.now(),
+      id: generateUUID(),
       don_vi_gui: docData.don_vi_gui || 'ĐƠN VỊ KHÁC',
       noi_dung: docData.noi_dung || '',
       so_ky_hieu: docData.so_ky_hieu || '',
@@ -397,10 +609,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
 
     setIncomingDocs((prev) => [newDoc, ...prev]);
+    insertIncomingDocToSupabase(newDoc);
     return newDoc;
   };
 
-  // Giao việc từ văn bản đến: 1 văn bản sinh nhiều task riêng lẻ cho từng người
   const createTasksFromDoc = (
     docId: string,
     assigneeIds: string[],
@@ -415,7 +627,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const createdTasks: Task[] = [];
 
     assigneeIds.forEach((assigneeId) => {
-      const assignee = members.find((m) => m.id === assigneeId);
       const newTask = addTask({
         source_document_id: doc.id,
         title: title || `Xử lý VB [${doc.so_ky_hieu || 'CV'}]: ${doc.noi_dung.slice(0, 50)}...`,
@@ -429,60 +640,65 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       createdTasks.push(newTask);
     });
 
-    // Cập nhật người nhận xử lý trong sổ văn bản nếu trước đó ghi Xin ý kiến BTV
     const assigneeNames = assigneeIds
       .map((id) => members.find((m) => m.id === id)?.full_name || '')
       .filter(Boolean)
       .join(', ');
 
+    const docUpdates = {
+      ngay_chuyen_xu_ly: new Date().toISOString().split('T')[0],
+      nguoi_nhan_xu_ly: assigneeNames || doc.nguoi_nhan_xu_ly,
+    };
+
     setIncomingDocs((prev) =>
-      prev.map((d) => {
-        if (d.id === docId) {
-          return {
-            ...d,
-            ngay_chuyen_xu_ly: new Date().toISOString().split('T')[0],
-            nguoi_nhan_xu_ly: assigneeNames || d.nguoi_nhan_xu_ly,
-          };
-        }
-        return d;
-      })
+      prev.map((d) => (d.id === docId ? { ...d, ...docUpdates } : d))
     );
+    updateIncomingDocOnSupabase(docId, docUpdates);
 
     return createdTasks;
   };
 
-  // Thêm bình luận
+  // ----------------------------------------------------------------------------
+  // 6. THAO TÁC BÌNH LUẬN & CHAT NHÓM BTV
+  // ----------------------------------------------------------------------------
+
   const addComment = (taskId: string, body: string) => {
     const newComment: TaskComment = {
-      id: 'cmt-' + Date.now(),
+      id: generateUUID(),
       task_id: taskId,
       member_id: currentMember.id,
       body,
       created_at: new Date().toISOString(),
       member: currentMember,
     };
+
     setComments((prev) => [...prev, newComment]);
 
-    // Tăng đếm bình luận
     setTasks((prev) =>
       prev.map((t) => (t.id === taskId ? { ...t, comments_count: (t.comments_count || 0) + 1 } : t))
     );
+
+    insertCommentToSupabase(newComment);
   };
 
-  // Gửi tin nhắn chat chung
   const sendChatMessage = (body: string, replyTo?: string) => {
     const newMsg: ChatMessage = {
-      id: 'msg-' + Date.now(),
+      id: generateUUID(),
       member_id: currentMember.id,
       body,
       reply_to: replyTo || null,
       created_at: new Date().toISOString(),
       member: currentMember,
     };
+
     setChatMessages((prev) => [...prev, newMsg]);
+    insertChatMessageToSupabase(newMsg);
   };
 
-  // Lấy danh sách Việc của tôi theo nhóm
+  // ----------------------------------------------------------------------------
+  // 7. TRỢ GIÚP THỐNG KÊ & PHÂN TÍCH TIẾN ĐỘ
+  // ----------------------------------------------------------------------------
+
   const getMyTasks = (memberId?: string) => {
     const targetId = memberId || currentMember.id;
     const myTasks = tasks.filter(
@@ -529,11 +745,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return { overdue, today, thisWeek, upcoming, completed };
   };
 
-  // Dữ liệu Bảng điều phối cho Chánh VP & Thường trực
   const getCoordinatorData = () => {
     const now = new Date();
 
-    // Việc đang trễ
     const overdueTasks = tasks
       .filter((t) => t.status !== 'hoan_thanh' && t.status !== 'huy' && t.due_at && new Date(t.due_at) < now)
       .map((t) => {
@@ -543,7 +757,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       })
       .sort((a, b) => b.daysOverdue - a.daysOverdue);
 
-    // Đến hạn trong 48 giờ
     const dueIn48Hours = tasks.filter((t) => {
       if (t.status === 'hoan_thanh' || t.status === 'huy' || !t.due_at) return false;
       const due = new Date(t.due_at);
@@ -551,10 +764,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return diffHours > 0 && diffHours <= 48;
     });
 
-    // Việc chờ duyệt
     const waitingApproval = tasks.filter((t) => t.status === 'cho_duyet');
 
-    // Tải việc từng người
     const workloadPerMember = members.map((member) => {
       const memberTasks = tasks.filter(
         (t) => t.owner_id === member.id && t.status !== 'hoan_thanh' && t.status !== 'huy'
@@ -569,18 +780,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       };
     });
 
-    // Ai đang bận
     const busyMembers = members.filter((m) => m.busy_from && m.busy_to);
 
-    // Việc không có hạn
     const tasksWithoutDueDate = tasks.filter(
       (t) => t.status !== 'hoan_thanh' && t.status !== 'huy' && !t.due_at
     );
 
-    // Việc chưa có ai phụ trách
     const tasksWithoutOwner = tasks.filter((t) => !t.owner_id);
 
-    // Văn bản chờ phân công
     const unassignedDocs = incomingDocs.filter(
       (d) =>
         d.nguoi_nhan_xu_ly?.toLowerCase().includes('xin ý kiến') ||
@@ -600,7 +807,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
   };
 
-  // Thống kê báo cáo
   const getReportData = () => {
     const completedTasks = tasks.filter((t) => t.status === 'hoan_thanh');
     let beforeDeadline = 0;
@@ -672,6 +878,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         members,
         currentMember,
         setCurrentMemberId,
+        authUser,
+        isAuthLoading,
+        isAuthModalOpen,
+        setIsAuthModalOpen,
+        signInWithGoogle,
+        signOut,
+        isSupabaseConnected,
+        isRealtimeLive,
+        refreshDataFromSupabase,
         tasks,
         campaigns,
         incomingDocs,
