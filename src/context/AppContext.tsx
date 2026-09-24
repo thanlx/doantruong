@@ -34,7 +34,7 @@ import {
   DEFAULT_ROLE_PERMISSIONS,
 } from '@/lib/mockData';
 import { checkCanManualRemind } from '@/lib/notifications';
-import { sendMobileNotification } from '@/lib/pushNotifications';
+import { sendMobileNotification, registerServiceWorker } from '@/lib/pushNotifications';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import {
   fetchTasksFromSupabase,
@@ -402,6 +402,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [isCreateCampaignModalOpen, setIsCreateCampaignModalOpen] = useState<boolean>(false);
   const [isMounted, setIsMounted] = useState<boolean>(false);
 
+  // Lưu trữ tham chiếu mới nhất cho WebSocket Realtime Handlers (tránh closure stale)
+  const currentMemberIdRef = React.useRef(currentMemberId);
+  useEffect(() => {
+    currentMemberIdRef.current = currentMemberId;
+  }, [currentMemberId]);
+
+  const membersRef = React.useRef(members);
+  useEffect(() => {
+    membersRef.current = members;
+  }, [members]);
+
   // ----------------------------------------------------------------------------
   // 1. TẢI DỮ LIỆU TỪ SUPABASE
   // ----------------------------------------------------------------------------
@@ -592,6 +603,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setIsMounted(true);
     refreshDataFromSupabase();
 
+    // Tự động đăng ký Service Worker để thiết bị PWA & Mobile sẵn sàng nhận thông báo
+    registerServiceWorker();
+
     if (supabase && isSupabaseConfigured) {
       supabase.auth.getSession().then(({ data: { session } }) => {
         if (session?.user) {
@@ -638,11 +652,41 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       });
 
       const unsubscribeRealtime = subscribeToBTVRealtime({
+        // 1. NHIỆM VỤ GIAO VIỆC MỚI
         onTaskInsert: (newTask) => {
           setTasks((prev) => {
             if (prev.some((t) => t.id === newTask.id)) return prev;
             return [newTask, ...prev];
           });
+
+          // Gửi thông báo đến thiết bị nếu người dùng là người nhận hoặc cộng tác viên
+          const myId = currentMemberIdRef.current;
+          const isRecipient =
+            newTask.owner_id === myId ||
+            (newTask.collaborator_ids && newTask.collaborator_ids.includes(myId));
+
+          if (isRecipient && newTask.created_by !== myId) {
+            const creator = membersRef.current.find((m) => m.id === newTask.created_by);
+            const creatorName = creator?.full_name || 'Thường trực Đoàn';
+
+            setNotifications((prev) => [
+              {
+                id: 'notif-task-' + newTask.id + '-' + Date.now(),
+                title: `Nhiệm vụ mới: ${newTask.title}`,
+                time: 'Vừa xong',
+                icon: 'briefcase',
+                unread: true,
+              },
+              ...prev,
+            ]);
+
+            sendMobileNotification({
+              title: `📋 Bạn có nhiệm vụ mới: ${newTask.title}`,
+              body: `Đ/c ${creatorName} đã giao việc cho bạn. Hạn chót: ${newTask.due_at ? newTask.due_at.slice(0, 10) : 'Không có'}`,
+              tag: `task-${newTask.id}`,
+              url: '/?tab=cong_viec',
+            });
+          }
         },
         onTaskUpdate: (updatedTask) => {
           setTasks((prev) =>
@@ -652,12 +696,40 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         onTaskDelete: (taskId) => {
           setTasks((prev) => prev.filter((t) => t.id !== taskId));
         },
+
+        // 2. TIN NHẮN NHÓM CHAT MỚI
         onChatInsert: (newMsg) => {
           setChatMessages((prev) => {
             if (prev.some((m) => m.id === newMsg.id)) return prev;
             return [...prev, newMsg];
           });
+
+          // Gửi thông báo đến điện thoại nếu tin nhắn do thành viên khác gửi
+          if (newMsg.member_id !== currentMemberIdRef.current) {
+            const sender = membersRef.current.find((m) => m.id === newMsg.member_id);
+            const senderName = sender?.full_name || 'Đồng chí BTV';
+
+            setNotifications((prev) => [
+              {
+                id: 'notif-chat-' + newMsg.id + '-' + Date.now(),
+                title: `Tin nhắn từ ${senderName}`,
+                time: 'Vừa xong',
+                icon: 'message-circle',
+                unread: true,
+              },
+              ...prev,
+            ]);
+
+            sendMobileNotification({
+              title: `💬 ${senderName} (BTV Đoàn trường)`,
+              body: newMsg.body || 'Đã gửi một tin nhắn mới trong nhóm chat BTV',
+              tag: `chat-${newMsg.id}`,
+              url: '/?tab=chat',
+            });
+          }
         },
+
+        // 3. BÌNH LUẬN TRONG CÔNG VIỆC
         onCommentInsert: (newComment) => {
           setComments((prev) => {
             if (prev.some((c) => c.id === newComment.id)) return prev;
@@ -671,20 +743,90 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             )
           );
         },
+
+        // 4. CÔNG VĂN / VĂN BẢN ĐẾN MỚI
         onDocInsert: (newDoc) => {
           setIncomingDocs((prev) => {
             if (prev.some((d) => d.id === newDoc.id)) return prev;
             return [newDoc, ...prev];
           });
+
+          // Gửi thông báo chuông & rung nếu văn bản được tiếp nhận từ tài khoản khác
+          if (newDoc.created_by !== currentMemberIdRef.current) {
+            const docNum = newDoc.so_ky_hieu ? `Số ${newDoc.so_ky_hieu}` : 'Văn bản đến mới';
+            const fromOrg = newDoc.don_vi_gui ? `từ ${newDoc.don_vi_gui}` : '';
+
+            setNotifications((prev) => [
+              {
+                id: 'notif-doc-' + newDoc.id + '-' + Date.now(),
+                title: `Công văn: ${docNum} ${fromOrg}`,
+                time: 'Vừa xong',
+                icon: 'file-text',
+                unread: true,
+              },
+              ...prev,
+            ]);
+
+            sendMobileNotification({
+              title: `📄 Công văn mới: ${newDoc.so_ky_hieu || 'Văn bản đến'}`,
+              body: `${fromOrg ? fromOrg + ': ' : ''}${newDoc.noi_dung || 'Có công văn mới cần rà soát và xử lý.'}`,
+              tag: `doc-${newDoc.id}`,
+              url: '/?tab=van_ban_den',
+            });
+          }
         },
         onDocUpdate: (updatedDoc) => {
           setIncomingDocs((prev) =>
             prev.map((d) => (d.id === updatedDoc.id ? { ...d, ...updatedDoc } : d))
           );
         },
+        onDocDelete: (docId) => {
+          setIncomingDocs((prev) => prev.filter((d) => d.id !== docId));
+        },
+
+        // 5. HOẠT ĐỘNG / CHIẾN DỊCH / SỰ KIỆN MỚI
+        onCampaignInsert: (newCamp) => {
+          setCampaigns((prev) => {
+            if (prev.some((c) => c.id === newCamp.id)) return prev;
+            return [newCamp, ...prev];
+          });
+
+          // Gửi thông báo chuông & rung nếu sự kiện do người khác khởi tạo
+          if (newCamp.created_by !== currentMemberIdRef.current) {
+            setNotifications((prev) => [
+              {
+                id: 'notif-camp-' + newCamp.id + '-' + Date.now(),
+                title: `Sự kiện mới: ${newCamp.name}`,
+                time: 'Vừa xong',
+                icon: 'flag',
+                unread: true,
+              },
+              ...prev,
+            ]);
+
+            sendMobileNotification({
+              title: `🚩 Sự kiện mới: ${newCamp.name}`,
+              body: newCamp.description || 'Chiến dịch / Hoạt động mới đã được khởi tạo trong Ban Thường vụ.',
+              tag: `camp-${newCamp.id}`,
+              url: '/?tab=du_an',
+            });
+          }
+        },
+        onCampaignUpdate: (updatedCamp) => {
+          setCampaigns((prev) =>
+            prev.map((c) => (c.id === updatedCamp.id ? { ...c, ...updatedCamp } : c))
+          );
+        },
+        onCampaignDelete: (campId) => {
+          setCampaigns((prev) => prev.filter((c) => c.id !== campId));
+        },
+
+        // 6. NHẬT KÝ HOẠT ĐỘNG
         onLogInsert: (newLog) => {
           setActivityLogs((prev) => [newLog, ...prev]);
         },
+
+        // 7. TRẠNG THÁI REALTIME
         onStatusChange: (status) => {
           setIsRealtimeLive(status === 'SUBSCRIBED');
         },

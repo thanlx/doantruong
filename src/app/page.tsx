@@ -27,6 +27,7 @@ import IosGuideView from '@/components/views/IosGuideView';
 import SettingsView from '@/components/views/SettingsView';
 import AdminView from '@/components/views/AdminView';
 import FeatureShowcase from '@/components/FeatureShowcase';
+import NotificationBanner from '@/components/NotificationBanner';
 
 // Modals
 import TaskDetailModal from '@/components/modals/TaskDetailModal';
@@ -59,6 +60,23 @@ export default function Home() {
     setIsWeeklyCheckinModalOpen,
   } = useApp();
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
+
+  // Lắng nghe tham số URL ?tab= để điều hướng trực tiếp khi người dùng nhấn vào Push Notification
+  React.useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const checkUrlTab = () => {
+        const urlParams = new URLSearchParams(window.location.search);
+        const tab = urlParams.get('tab');
+        if (tab) {
+          setActiveTab(tab);
+        }
+      };
+
+      checkUrlTab();
+      window.addEventListener('popstate', checkUrlTab);
+      return () => window.removeEventListener('popstate', checkUrlTab);
+    }
+  }, [setActiveTab]);
 
   // Tránh flash khi chưa mount
   if (!isMounted) {
@@ -201,6 +219,7 @@ export default function Home() {
           {/* Thân cuộn trang chuẩn spacing Section 3.1 & 3.4 */}
           <main id="main-content" tabIndex={-1} className="app-main flex-1 min-h-0 overflow-y-auto px-3 sm:px-5 pt-4 pb-24 md:pb-6 scrollbar-thin">
             <div className="view-content w-full max-w-[1600px] mx-auto" data-view={activeTab}>
+              <NotificationBanner />
               {renderCurrentView()}
             </div>
           </main>

@@ -19,6 +19,7 @@ import {
   Radio,
   Heart,
   Camera,
+  Volume2,
 } from 'lucide-react';
 import DoanLogo from './DoanLogo';
 import AuthModal from './modals/AuthModal';
@@ -26,6 +27,7 @@ import AvatarWithFallback from './AvatarWithFallback';
 import { cn } from '@/lib/utils';
 import { matchesVietnameseSearch } from '@/lib/searchUtils';
 import { formatRole } from '@/lib/formatters';
+import { sendTestNotification } from '@/lib/pushNotifications';
 
 interface HeaderProps {
   onOpenMobileMenu?: () => void;
@@ -306,48 +308,76 @@ export default function Header({ onOpenMobileMenu }: HeaderProps) {
 
           {/* Chuông thông báo */}
           <div className="relative">
-            <button
-              onClick={() => setShowNotificationDrawer(!showNotificationDrawer)}
-              className="relative p-2.5 text-muted-foreground hover:text-foreground rounded-full hover:bg-muted transition-colors"
-              aria-label="Thông báo"
-            >
-              <Bell className="w-4 h-4" />
-              <span className="absolute top-1.5 right-1.5 w-4 h-4 bg-destructive text-destructive-foreground text-[9px] font-bold flex items-center justify-center rounded-full ring-2 ring-card">
-                3
-              </span>
-            </button>
+            {(() => {
+              const unreadCount = (notifications || []).filter((n) => n.unread).length;
+              return (
+                <button
+                  onClick={() => setShowNotificationDrawer(!showNotificationDrawer)}
+                  className="relative p-2.5 text-muted-foreground hover:text-foreground rounded-full hover:bg-muted transition-colors cursor-pointer"
+                  aria-label="Thông báo"
+                >
+                  <Bell className="w-4 h-4" />
+                  {unreadCount > 0 && (
+                    <span className="absolute top-1.5 right-1.5 min-w-[16px] h-4 px-1 bg-destructive text-destructive-foreground text-[9px] font-bold flex items-center justify-center rounded-full ring-2 ring-card animate-pulse">
+                      {unreadCount}
+                    </span>
+                  )}
+                </button>
+              );
+            })()}
 
             {/* Drawer thông báo */}
             {showNotificationDrawer && (
               <div className="absolute right-0 top-12 w-80 sm:w-96 max-w-[calc(100vw-24px)] bg-card rounded-2xl shadow-xl border border-border p-4 z-50 animate-in fade-in slide-in-from-top-2 duration-150 text-card-foreground">
                 <div className="flex items-center justify-between pb-3 border-b border-border">
-                  <h4 className="text-sm font-bold text-foreground">Thông báo mới</h4>
-                  <button
-                    onClick={() => {
-                      setActiveTab('thong_bao');
-                      setShowNotificationDrawer(false);
-                    }}
-                    className="text-xs text-primary hover:underline font-semibold"
-                  >
-                    Xem tất cả
-                  </button>
+                  <h4 className="text-sm font-bold text-foreground flex items-center gap-1.5">
+                    <span>Thông báo mới</span>
+                    {(notifications || []).filter((n) => n.unread).length > 0 && (
+                      <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-primary/10 text-primary">
+                        {(notifications || []).filter((n) => n.unread).length}
+                      </span>
+                    )}
+                  </h4>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={async () => {
+                        await sendTestNotification();
+                      }}
+                      className="text-[11px] text-blue-600 dark:text-blue-400 hover:underline font-semibold flex items-center gap-1 cursor-pointer"
+                      title="Phát thử chuông & rung kiểm tra trên điện thoại"
+                    >
+                      <Volume2 className="w-3.5 h-3.5" />
+                      <span>Thử chuông</span>
+                    </button>
+                  </div>
                 </div>
 
                 <div className="divide-y divide-border mt-2 max-h-72 overflow-y-auto scrollbar-thin">
-                  {notifications.map((n) => (
-                    <div
-                      key={n.id}
-                      className="py-2.5 px-2 hover:bg-muted/50 rounded-xl transition-colors cursor-pointer"
-                    >
-                      <div className="flex items-start gap-2.5">
-                        <div className="w-2 h-2 rounded-full bg-primary mt-1.5 shrink-0" />
-                        <div>
-                          <p className="text-xs font-semibold text-foreground leading-snug">{n.title}</p>
-                          <span className="text-[10px] text-muted-foreground mt-0.5 block">{n.time}</span>
+                  {notifications.length === 0 ? (
+                    <div className="py-8 text-center text-xs text-muted-foreground">
+                      Chưa có thông báo mới nào.
+                    </div>
+                  ) : (
+                    notifications.map((n) => (
+                      <div
+                        key={n.id}
+                        className="py-2.5 px-2 hover:bg-muted/50 rounded-xl transition-colors cursor-pointer"
+                      >
+                        <div className="flex items-start gap-2.5">
+                          <div
+                            className={cn(
+                              "w-2 h-2 rounded-full mt-1.5 shrink-0",
+                              n.unread ? "bg-primary ring-2 ring-primary/30" : "bg-muted-foreground/30"
+                            )}
+                          />
+                          <div>
+                            <p className="text-xs font-semibold text-foreground leading-snug">{n.title}</p>
+                            <span className="text-[10px] text-muted-foreground mt-0.5 block">{n.time}</span>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    ))
+                  )}
                 </div>
               </div>
             )}

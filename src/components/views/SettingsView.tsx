@@ -27,10 +27,24 @@ import {
   Clock,
   Calendar,
   Check,
+  Bell,
+  Volume2,
+  Smartphone,
+  FileText,
+  MessageSquare,
+  CheckSquare,
+  Share2,
 } from 'lucide-react';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import AvatarWithFallback from '@/components/AvatarWithFallback';
 import { formatRole } from '@/lib/formatters';
+import {
+  getNotificationPermissionState,
+  isNotificationSupported,
+  requestNotificationPermission,
+  sendTestNotification,
+  playNotificationSound,
+} from '@/lib/pushNotifications';
 
 export default function SettingsView() {
   const {
@@ -49,6 +63,44 @@ export default function SettingsView() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [isDarkMode, setIsDarkMode] = useState(false);
+
+  // State Thông báo đẩy & Rung chuông điện thoại
+  const [permissionState, setPermissionState] = useState<NotificationPermission>('default');
+  const [isNotifSupported, setIsNotifSupported] = useState(true);
+  const [testStatusMessage, setTestStatusMessage] = useState<string | null>(null);
+  const [isTestingNotif, setIsTestingNotif] = useState(false);
+
+  React.useEffect(() => {
+    setIsNotifSupported(isNotificationSupported());
+    setPermissionState(getNotificationPermissionState());
+  }, []);
+
+  const handleRequestPermission = async () => {
+    const granted = await requestNotificationPermission();
+    setPermissionState(getNotificationPermissionState());
+    if (granted) {
+      setTestStatusMessage('Đã bật quyền nhận thông báo thành công!');
+    } else {
+      setTestStatusMessage('Chưa được cấp quyền thông báo. Hãy kiểm tra cài đặt trình duyệt.');
+    }
+    setTimeout(() => setTestStatusMessage(null), 4000);
+  };
+
+  const handleSendTest = async () => {
+    setIsTestingNotif(true);
+    try {
+      const success = await sendTestNotification();
+      setPermissionState(getNotificationPermissionState());
+      if (success) {
+        setTestStatusMessage('Đã phát chuông, rung và gửi thông báo thử nghiệm thành công!');
+      } else {
+        setTestStatusMessage('Không thể gửi thông báo. Vui lòng cấp quyền thông báo trước.');
+      }
+    } finally {
+      setIsTestingNotif(false);
+      setTimeout(() => setTestStatusMessage(null), 4000);
+    }
+  };
 
   // State Ủy quyền & Bàn giao nhiệm vụ
   const [busyFrom, setBusyFrom] = useState(currentMember.busy_from || '');
@@ -310,7 +362,151 @@ export default function SettingsView() {
         </div>
       </div>
 
-      {/* 3. ỦY QUYỀN TẠM THỜI & BÀN GIAO NHIỆM VỤ */}
+      {/* 3. THÔNG BÁO ĐẨY & RUNG CHUÔNG ĐIỆN THOẠI (MOBILE PUSH NOTIFICATIONS) */}
+      <div className="bg-card rounded-3xl p-6 border border-border shadow-xs space-y-4">
+        <div className="flex items-center justify-between pb-3 border-b border-border flex-wrap gap-2">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
+              <Bell className="w-4 h-4" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-foreground">
+                Thông báo đẩy & Rung chuông điện thoại (Mobile Push)
+              </h3>
+              <p className="text-[11px] text-muted-foreground">
+                Phát chuông, rung điện thoại khi có công văn mới, sự kiện, tin nhắn nhóm chat và công việc
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {permissionState === 'granted' ? (
+              <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 flex items-center gap-1.5">
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                <span>Đã bật thông báo</span>
+              </span>
+            ) : permissionState === 'denied' ? (
+              <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-destructive/15 text-destructive border border-destructive/30 flex items-center gap-1.5">
+                <AlertTriangle className="w-3.5 h-3.5" />
+                <span>Bị chặn trong trình duyệt</span>
+              </span>
+            ) : (
+              <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30 flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                <span>Chưa kích hoạt</span>
+              </span>
+            )}
+          </div>
+        </div>
+
+        {testStatusMessage && (
+          <div className="p-3 rounded-2xl bg-primary/10 border border-primary/20 text-primary text-xs font-bold flex items-center gap-2 animate-in fade-in">
+            <CheckCircle2 className="w-4 h-4 shrink-0" />
+            <span>{testStatusMessage}</span>
+          </div>
+        )}
+
+        {/* Nút hành động */}
+        <div className="flex flex-wrap items-center gap-2.5 pt-1">
+          {permissionState !== 'granted' && (
+            <button
+              onClick={handleRequestPermission}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-bold transition-all shadow-xs active:scale-95"
+            >
+              <Smartphone className="w-4 h-4" />
+              <span>Bật thông báo trên điện thoại</span>
+            </button>
+          )}
+
+          <button
+            onClick={handleSendTest}
+            disabled={isTestingNotif}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all shadow-xs active:scale-95 disabled:opacity-60"
+          >
+            <Bell className="w-4 h-4" />
+            <span>{isTestingNotif ? 'Đang gửi...' : 'Thử phát chuông & rung ngay'}</span>
+          </button>
+
+          <button
+            onClick={() => playNotificationSound()}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-border hover:bg-muted text-foreground text-xs font-medium transition-all"
+          >
+            <Volume2 className="w-4 h-4 text-primary" />
+            <span>Nghe thử tiếng chuông</span>
+          </button>
+        </div>
+
+        {/* Danh sách sự kiện được thông báo tự động */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-2">
+          <div className="p-3 rounded-2xl bg-muted/40 border border-border flex items-start gap-2.5">
+            <div className="w-7 h-7 rounded-lg bg-blue-500/15 text-blue-500 flex items-center justify-center shrink-0 mt-0.5">
+              <FileText className="w-4 h-4" />
+            </div>
+            <div className="text-xs">
+              <div className="font-bold text-foreground">Công văn đến mới</div>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                Rung chuông & báo trích yếu, số hiệu khi văn thư/BTV tải công văn mới lên.
+              </p>
+            </div>
+          </div>
+
+          <div className="p-3 rounded-2xl bg-muted/40 border border-border flex items-start gap-2.5">
+            <div className="w-7 h-7 rounded-lg bg-red-500/15 text-red-500 flex items-center justify-center shrink-0 mt-0.5">
+              <Calendar className="w-4 h-4" />
+            </div>
+            <div className="text-xs">
+              <div className="font-bold text-foreground">Sự kiện & Hoạt động</div>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                Thông báo chiến dịch tình nguyện, hội nghị, sự kiện Đoàn trường vừa khởi tạo.
+              </p>
+            </div>
+          </div>
+
+          <div className="p-3 rounded-2xl bg-muted/40 border border-border flex items-start gap-2.5">
+            <div className="w-7 h-7 rounded-lg bg-emerald-500/15 text-emerald-500 flex items-center justify-center shrink-0 mt-0.5">
+              <MessageSquare className="w-4 h-4" />
+            </div>
+            <div className="text-xs">
+              <div className="font-bold text-foreground">Tin nhắn nhóm chat BTV</div>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                Rung chuông & hiển thị tên người gửi kèm trích dẫn nội dung thảo luận.
+              </p>
+            </div>
+          </div>
+
+          <div className="p-3 rounded-2xl bg-muted/40 border border-border flex items-start gap-2.5">
+            <div className="w-7 h-7 rounded-lg bg-indigo-500/15 text-indigo-500 flex items-center justify-center shrink-0 mt-0.5">
+              <CheckSquare className="w-4 h-4" />
+            </div>
+            <div className="text-xs">
+              <div className="font-bold text-foreground">Giao việc & Nhiệm vụ</div>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                Báo ngay cho đồng chí khi được phân công nhiệm vụ mới hoặc việc sắp đến hạn.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Hướng dẫn cài đặt trên điện thoại PWA */}
+        <div className="p-4 rounded-2xl bg-muted/30 border border-border space-y-2.5 text-xs">
+          <div className="font-bold text-foreground flex items-center gap-2">
+            <Smartphone className="w-4 h-4 text-primary" />
+            <span>Hướng dẫn cài đặt lên điện thoại để nhận thông báo nền tốt nhất:</span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-[11px] text-muted-foreground leading-relaxed">
+            <div className="p-2.5 rounded-xl bg-card border border-border space-y-1">
+              <span className="font-bold text-foreground block">📱 Android (Chrome / Cốc Cốc / Edge):</span>
+              <p>Bấm vào biểu tượng menu <b>3 chấm (⋮)</b> góc trên phải trình duyệt → Chọn <b>"Cài đặt ứng dụng"</b> (hoặc <i>"Thêm vào Màn hình chính"</i>) → Mở ứng dụng từ màn hình chính và bấm <b>Cho phép</b> nhận thông báo.</p>
+            </div>
+            <div className="p-2.5 rounded-xl bg-card border border-border space-y-1">
+              <span className="font-bold text-foreground block">🍎 iPhone / iPad (Safari - iOS 16.4+):</span>
+              <p>Bấm vào nút <b>Chia sẻ</b> (<Share2 className="w-3 h-3 inline text-primary mx-0.5" /> biểu tượng hình vuông có mũi tên lên) ở thanh dưới cùng Safari → Chọn <b>"Thêm vào MH chính" (Add to Home Screen)</b> → Mở app từ màn hình chính để nhận thông báo đẩy.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* 4. ỦY QUYỀN TẠM THỜI & BÀN GIAO NHIỆM VỤ */}
       <div className="bg-card rounded-3xl p-6 border border-border shadow-xs space-y-4">
         <div className="flex items-center justify-between pb-3 border-b border-border">
           <div className="flex items-center gap-2">
@@ -430,7 +626,7 @@ export default function SettingsView() {
         </form>
       </div>
 
-      {/* 4. CƠ SỞ DỮ LIỆU & REALTIME SUPABASE */}
+      {/* 5. CƠ SỞ DỮ LIỆU & REALTIME SUPABASE */}
       <div className="bg-card rounded-3xl p-6 border border-border shadow-xs space-y-4">
         <div className="flex items-center justify-between pb-3 border-b border-border">
           <div className="flex items-center gap-2">
@@ -481,7 +677,7 @@ export default function SettingsView() {
         </div>
       </div>
 
-      {/* 4. TÍCH HỢP BOT 2 CHIỀU TELEGRAM & ZALO */}
+      {/* 6. TÍCH HỢP BOT 2 CHIỀU TELEGRAM & ZALO */}
       <div className="bg-card rounded-3xl p-6 border border-border shadow-xs space-y-4">
         <div className="flex items-center gap-2 pb-3 border-b border-border">
           <Sparkles className="w-5 h-5 text-primary" />
@@ -537,7 +733,7 @@ export default function SettingsView() {
         </div>
       </div>
 
-      {/* 5. BỘ CHUYỂN ĐỔI 9 THÀNH VIÊN BTV KIỂM THỬ */}
+      {/* 7. BỘ CHUYỂN ĐỔI 9 THÀNH VIÊN BTV KIỂM THỬ */}
       <div className="bg-card rounded-3xl p-6 border border-border shadow-xs space-y-4">
         <div className="flex items-center gap-2 pb-3 border-b border-border">
           <UserCheck className="w-5 h-5 text-primary" />
@@ -581,7 +777,7 @@ export default function SettingsView() {
         </div>
       </div>
 
-      {/* 5. KHÔI PHỤC DỮ LIỆU */}
+      {/* 8. KHÔI PHỤC DỮ LIỆU */}
       <div className="p-4 rounded-2xl bg-destructive/10 border border-destructive/20 flex items-center justify-between">
         <div>
           <h4 className="text-xs font-bold text-destructive">Khôi phục cài đặt & Dữ liệu bộ nhớ tạm</h4>

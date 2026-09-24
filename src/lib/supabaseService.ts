@@ -824,6 +824,10 @@ export interface RealtimeHandlers {
   onCommentInsert?: (comment: TaskComment) => void;
   onDocInsert?: (doc: IncomingDocument) => void;
   onDocUpdate?: (doc: IncomingDocument) => void;
+  onDocDelete?: (docId: string) => void;
+  onCampaignInsert?: (camp: Campaign) => void;
+  onCampaignUpdate?: (camp: Campaign) => void;
+  onCampaignDelete?: (campId: string) => void;
   onLogInsert?: (log: ActivityLog) => void;
   onStatusChange?: (status: 'SUBSCRIBED' | 'TIMED_OUT' | 'CLOSED' | 'CHANNEL_ERROR') => void;
 }
@@ -884,6 +888,38 @@ export function subscribeToBTVRealtime(handlers: RealtimeHandlers) {
       { event: 'UPDATE', schema: 'public', table: 'incoming_documents' },
       (payload) => {
         handlers.onDocUpdate?.(payload.new as IncomingDocument);
+      }
+    )
+    .on(
+      'postgres_changes',
+      { event: 'DELETE', schema: 'public', table: 'incoming_documents' },
+      (payload) => {
+        if (payload.old && payload.old.id) {
+          handlers.onDocDelete?.(payload.old.id);
+        }
+      }
+    )
+    .on(
+      'postgres_changes',
+      { event: 'INSERT', schema: 'public', table: 'campaigns' },
+      (payload) => {
+        handlers.onCampaignInsert?.(payload.new as Campaign);
+      }
+    )
+    .on(
+      'postgres_changes',
+      { event: 'UPDATE', schema: 'public', table: 'campaigns' },
+      (payload) => {
+        handlers.onCampaignUpdate?.(payload.new as Campaign);
+      }
+    )
+    .on(
+      'postgres_changes',
+      { event: 'DELETE', schema: 'public', table: 'campaigns' },
+      (payload) => {
+        if (payload.old && payload.old.id) {
+          handlers.onCampaignDelete?.(payload.old.id);
+        }
       }
     )
     .on(
