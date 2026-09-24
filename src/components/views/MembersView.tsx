@@ -16,11 +16,12 @@ import {
   AlertCircle,
   Briefcase,
   ShieldCheck,
+  Camera,
 } from 'lucide-react';
 import AvatarWithFallback from '@/components/AvatarWithFallback';
 
 export default function MembersView() {
-  const { members, tasks, currentMember, setCurrentMemberId } = useApp();
+  const { members, tasks, currentMember, setCurrentMemberId, openAvatarModal } = useApp();
 
   const [activeTab, setActiveTab] = useState<'btv' | 'don_vi'>('btv');
   const [searchQuery, setSearchQuery] = useState('');
@@ -159,11 +160,20 @@ export default function MembersView() {
                 )}
 
                 <div className="flex items-center gap-3">
-                  <AvatarWithFallback
-                    src={m.avatar_url}
-                    name={m.full_name}
-                    className="w-14 h-14 rounded-2xl ring-2 ring-border shrink-0 text-base"
-                  />
+                  <div
+                    className="relative group cursor-pointer shrink-0"
+                    onClick={() => openAvatarModal(m)}
+                    title="Bấm để thay đổi ảnh đại diện"
+                  >
+                    <AvatarWithFallback
+                      src={m.avatar_url}
+                      name={m.full_name}
+                      className="w-14 h-14 rounded-2xl ring-2 ring-border group-hover:ring-primary shrink-0 text-base transition-all"
+                    />
+                    <div className="absolute inset-0 bg-black/40 rounded-2xl flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Camera className="w-5 h-5 text-white" />
+                    </div>
+                  </div>
                   <div className="flex-1 min-w-0">
                     <h4 className="text-sm font-bold text-foreground truncate leading-snug">{m.full_name}</h4>
                     <div className="mt-1">{getRoleBadge(m.role)}</div>

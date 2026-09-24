@@ -26,19 +26,23 @@ import {
 } from 'lucide-react';
 
 export default function BottomNav() {
-  const { activeTab, setActiveTab, setIsCreateTaskModalOpen } = useApp();
+  const { activeTab, setActiveTab, setIsCreateTaskModalOpen, hasPermission } = useApp();
   const [showMoreMenu, setShowMoreMenu] = useState(false);
+
+  const canAccessAdmin = hasPermission('access_admin_portal');
+  const canAccessCoordinator = hasPermission('access_coordinator');
+  const canViewReports = hasPermission('view_reports_kpi');
 
   const moreItems = [
     { id: 'du_an', label: 'Dự án / Chiến dịch', icon: FolderGit2 },
     { id: 'thiet_ke', label: 'Hệ thống thiết kế', icon: Palette },
-    { id: 'admin', label: 'Quản trị Admin', icon: ShieldAlert },
+    ...(canAccessAdmin ? [{ id: 'admin', label: 'Quản trị Admin', icon: ShieldAlert }] : []),
     { id: 'viec_cua_toi', label: 'Việc của tôi', icon: CheckSquare },
-    { id: 'dieu_phoi', label: 'Bảng điều phối', icon: Compass },
+    ...(canAccessCoordinator ? [{ id: 'dieu_phoi', label: 'Bảng điều phối', icon: Compass }] : []),
     { id: 'van_ban_den', label: 'Sổ văn bản đến', icon: FileText },
     { id: 'chat', label: 'Chat nhóm BTV', icon: MessageSquare },
     { id: 'thanh_vien', label: 'Thành viên', icon: Users },
-    { id: 'bao_cao', label: 'Báo cáo & Thống kê', icon: BarChart3 },
+    ...(canViewReports ? [{ id: 'bao_cao', label: 'Báo cáo & Thống kê', icon: BarChart3 }] : []),
     { id: 'huong_dan_ios', label: 'Cài đặt iOS (PWA)', icon: Smartphone },
     { id: 'cai_dat', label: 'Cài đặt & Tài khoản', icon: Settings },
   ];

@@ -126,9 +126,20 @@ export default function SettingsView() {
   };
 
   const handleResetData = () => {
-    if (confirm('Đồng chí có chắc chắn muốn khôi phục dữ liệu ban đầu không?')) {
+    if (confirm('Đồng chí có chắc chắn muốn khôi phục dữ liệu ban đầu không? Thao tác này sẽ xóa toàn bộ bộ nhớ tạm trên trình duyệt và đồng bộ lại nguyên bản từ máy chủ Supabase.')) {
       localStorage.removeItem('btv_tasks');
       localStorage.removeItem('btv_docs');
+      localStorage.removeItem('btv_members');
+      localStorage.removeItem('btv_campaigns');
+      localStorage.removeItem('btv_chat_messages');
+      localStorage.removeItem('btv_comments');
+      localStorage.removeItem('btv_activity_logs');
+      localStorage.removeItem('btv_role_permissions');
+      localStorage.removeItem('btv_weekly_checkins');
+      localStorage.removeItem('btv_deleted_member_ids');
+      localStorage.removeItem('btv_deleted_task_ids');
+      localStorage.removeItem('btv_deleted_campaign_ids');
+      localStorage.removeItem('btv_deleted_doc_ids');
       localStorage.removeItem('btv_current_member_id');
       window.location.reload();
     }

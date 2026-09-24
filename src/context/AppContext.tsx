@@ -44,14 +44,23 @@ import {
   fetchActivityLogsFromSupabase,
   fetchMembersFromSupabase,
   fetchCampaignsFromSupabase,
+  fetchRolePermissionsFromSupabase,
+  syncRolePermissionsToSupabase,
   insertTaskToSupabase,
   updateTaskOnSupabase,
   deleteTaskFromSupabase,
   insertChatMessageToSupabase,
   insertIncomingDocToSupabase,
   updateIncomingDocOnSupabase,
+  deleteIncomingDocFromSupabase,
   insertCommentToSupabase,
   insertActivityLogToSupabase,
+  insertMemberToSupabase,
+  updateMemberOnSupabase,
+  deleteMemberFromSupabase,
+  insertCampaignToSupabase,
+  updateCampaignOnSupabase,
+  deleteCampaignFromSupabase,
   seedSupabaseIfEmpty,
   subscribeToBTVRealtime,
   signInWithGoogleOAuth,
@@ -68,6 +77,46 @@ function generateUUID(): string {
     const v = c === 'x' ? r : (r & 0x3) | 0x8;
     return v.toString(16);
   });
+}
+
+// ------------------------------------------------------------------------------
+// HÀM HỖ TRỢ TOMBSTONE & PHỤC HỒI DỮ LIỆU LOCALSTORAGE (CHỐNG MẤT DỮ LIỆU KHI F5)
+// ------------------------------------------------------------------------------
+function getDeletedIdSet(key: string): Set<string> {
+  if (typeof window === 'undefined') return new Set();
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw) {
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr)) return new Set(arr);
+    }
+  } catch (e) {}
+  return new Set();
+}
+
+function addDeletedId(key: string, id: string) {
+  if (typeof window === 'undefined') return;
+  try {
+    const set = getDeletedIdSet(key);
+    set.add(id);
+    localStorage.setItem(key, JSON.stringify(Array.from(set)));
+  } catch (e) {}
+}
+
+function getStoredItem<T>(key: string, fallback: T, deletedKey?: string): T {
+  if (typeof window === 'undefined') return fallback;
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && deletedKey) {
+        const deletedSet = getDeletedIdSet(deletedKey);
+        return parsed.filter((item: any) => item && item.id && !deletedSet.has(item.id)) as unknown as T;
+      }
+      return parsed;
+    }
+  } catch (e) {}
+  return fallback;
 }
 
 interface AppContextType {
@@ -174,6 +223,7 @@ interface AppContextType {
 
   // Thao tác Văn bản đến
   addIncomingDoc: (doc: Partial<IncomingDocument>) => IncomingDocument;
+  deleteIncomingDoc: (docId: string) => void;
   assignTaskFromDocument: (docId: string, taskData?: Partial<Task>) => { success: boolean; task?: Task; message?: string };
   createTasksFromDoc: (
     docId: string,
@@ -240,18 +290,43 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
-  const [members, setMembers] = useState<Member[]>(INITIAL_MEMBERS);
-  const [currentMemberId, setCurrentMemberId] = useState<string>('11111111-1111-1111-1111-111111111111');
-  const [tasks, setTasks] = useState<Task[]>(INITIAL_TASKS);
-  const [campaigns, setCampaigns] = useState<Campaign[]>(INITIAL_CAMPAIGNS);
-  const [incomingDocs, setIncomingDocs] = useState<IncomingDocument[]>(INITIAL_DOCUMENTS);
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>(INITIAL_CHAT_MESSAGES);
+  const [members, setMembers] = useState<Member[]>(() =>
+    getStoredItem('btv_members', INITIAL_MEMBERS, 'btv_deleted_member_ids')
+  );
+  const [currentMemberId, setCurrentMemberId] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('btv_current_member_id');
+      if (saved) return saved;
+    }
+    return '11111111-1111-1111-1111-111111111111';
+  });
+  const [tasks, setTasks] = useState<Task[]>(() =>
+    getStoredItem('btv_tasks', INITIAL_TASKS, 'btv_deleted_task_ids')
+  );
+  const [campaigns, setCampaigns] = useState<Campaign[]>(() =>
+    getStoredItem('btv_campaigns', INITIAL_CAMPAIGNS, 'btv_deleted_campaign_ids')
+  );
+  const [incomingDocs, setIncomingDocs] = useState<IncomingDocument[]>(() =>
+    getStoredItem('btv_docs', INITIAL_DOCUMENTS, 'btv_deleted_doc_ids')
+  );
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>(() =>
+    getStoredItem('btv_chat_messages', INITIAL_CHAT_MESSAGES)
+  );
   const [notifications, setNotifications] = useState(INITIAL_NOTIFICATIONS);
-  const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
-  const [comments, setComments] = useState<TaskComment[]>([]);
+  const [activityLogs, setActivityLogs] = useState<ActivityLog[]>(() =>
+    getStoredItem('btv_activity_logs', [])
+  );
+  const [comments, setComments] = useState<TaskComment[]>(() =>
+    getStoredItem('btv_comments', [])
+  );
 
   // Phiên làm việc & Bảo mật Auth Gate
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('btv_session_active') === 'true';
+    }
+    return false;
+  });
 
   // Trạng thái Google Auth & Realtime
   const [authUser, setAuthUser] = useState<any>(null);
@@ -261,11 +336,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [isRealtimeLive, setIsRealtimeLive] = useState<boolean>(false);
 
   // Weekly Check-in (Nhiệt kế Tinh thần BTV)
-  const [weeklyCheckins, setWeeklyCheckins] = useState<WeeklyCheckin[]>(INITIAL_WEEKLY_CHECKINS);
+  const [weeklyCheckins, setWeeklyCheckins] = useState<WeeklyCheckin[]>(() =>
+    getStoredItem('btv_weekly_checkins', INITIAL_WEEKLY_CHECKINS)
+  );
   const [isWeeklyCheckinModalOpen, setIsWeeklyCheckinModalOpen] = useState<boolean>(false);
 
   // Quản lý Phân quyền (Role-Based Access Control - RBAC)
-  const [rolePermissions, setRolePermissions] = useState<RolePermissionsMap>(DEFAULT_ROLE_PERMISSIONS);
+  const [rolePermissions, setRolePermissions] = useState<RolePermissionsMap>(() =>
+    getStoredItem('btv_role_permissions', DEFAULT_ROLE_PERMISSIONS)
+  );
 
   // Modal Thay đổi Avatar
   const [isAvatarModalOpen, setIsAvatarModalOpen] = useState<boolean>(false);
@@ -294,7 +373,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     try {
       await seedSupabaseIfEmpty();
 
-      const [dbTasks, dbChat, dbDocs, dbComments, dbLogs, dbMembers, dbCampaigns] = await Promise.all([
+      const [dbTasks, dbChat, dbDocs, dbComments, dbLogs, dbMembers, dbCampaigns, dbRolePerms] = await Promise.all([
         fetchTasksFromSupabase(),
         fetchChatMessagesFromSupabase(),
         fetchIncomingDocsFromSupabase(),
@@ -302,7 +381,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         fetchActivityLogsFromSupabase(),
         fetchMembersFromSupabase(),
         fetchCampaignsFromSupabase(),
+        fetchRolePermissionsFromSupabase(),
       ]);
+
+      const deletedMemberIds = getDeletedIdSet('btv_deleted_member_ids');
+      const deletedTaskIds = getDeletedIdSet('btv_deleted_task_ids');
+      const deletedCampaignIds = getDeletedIdSet('btv_deleted_campaign_ids');
+      const deletedDocIds = getDeletedIdSet('btv_deleted_doc_ids');
 
       // Thu thập dữ liệu local storage hiện tại để ưu tiên giữ nguyên các cập nhật của người dùng
       let localTasks: Task[] = [];
@@ -323,57 +408,124 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         } catch (e) {}
       }
 
+      // 1. Tasks
       if (dbTasks && dbTasks.length > 0) {
+        const filteredDbTasks = dbTasks.filter((t) => !deletedTaskIds.has(t.id));
         if (localTasks.length > 0) {
           const taskMap = new Map<string, Task>();
-          dbTasks.forEach((t) => taskMap.set(t.id, t));
-          localTasks.forEach((t) => taskMap.set(t.id, { ...taskMap.get(t.id), ...t }));
-          setTasks(Array.from(taskMap.values()));
+          filteredDbTasks.forEach((t) => taskMap.set(t.id, t));
+          localTasks.forEach((t) => {
+            if (!deletedTaskIds.has(t.id)) {
+              const existing = taskMap.get(t.id);
+              taskMap.set(t.id, existing ? { ...existing, ...t } : t);
+            }
+          });
+          const merged = Array.from(taskMap.values());
+          setTasks(merged);
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('btv_tasks', JSON.stringify(merged));
+          }
         } else {
-          setTasks(dbTasks);
+          setTasks(filteredDbTasks);
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('btv_tasks', JSON.stringify(filteredDbTasks));
+          }
         }
       }
+
+      // 2. Chat
       if (dbChat && dbChat.length > 0) setChatMessages(dbChat);
+
+      // 3. Docs
       if (dbDocs && dbDocs.length > 0) {
+        const filteredDbDocs = dbDocs.filter((d) => !deletedDocIds.has(d.id));
         if (localDocs.length > 0) {
           const docMap = new Map<string, IncomingDocument>();
-          dbDocs.forEach((d) => docMap.set(d.id, d));
-          localDocs.forEach((d) => docMap.set(d.id, { ...docMap.get(d.id), ...d }));
-          setIncomingDocs(Array.from(docMap.values()));
+          filteredDbDocs.forEach((d) => docMap.set(d.id, d));
+          localDocs.forEach((d) => {
+            if (!deletedDocIds.has(d.id)) {
+              const existing = docMap.get(d.id);
+              docMap.set(d.id, existing ? { ...existing, ...d } : d);
+            }
+          });
+          const merged = Array.from(docMap.values());
+          setIncomingDocs(merged);
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('btv_docs', JSON.stringify(merged));
+          }
         } else {
-          setIncomingDocs(dbDocs);
+          setIncomingDocs(filteredDbDocs);
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('btv_docs', JSON.stringify(filteredDbDocs));
+          }
         }
       }
+
+      // 4. Comments & Logs
       if (dbComments && dbComments.length > 0) setComments(dbComments);
       if (dbLogs && dbLogs.length > 0) setActivityLogs(dbLogs);
+
+      // 5. Members (Hợp nhất bảo đảm không bao giờ phục sinh thành viên đã bị xóa)
       if (dbMembers && dbMembers.length > 0) {
-        // Hợp nhất đảm bảo bảo vệ avatar, tên, số điện thoại, custom_permissions mà admin đã sửa
         const memberMap = new Map<string, Member>();
-        INITIAL_MEMBERS.forEach((m) => memberMap.set(m.id, m));
-        dbMembers.forEach((m) => memberMap.set(m.id, { ...memberMap.get(m.id), ...m }));
-        localMembers.forEach((m) => {
-          const existing = memberMap.get(m.id);
-          if (existing) {
-            memberMap.set(m.id, { ...existing, ...m });
-          } else {
+        dbMembers.forEach((m) => {
+          if (!deletedMemberIds.has(m.id)) {
             memberMap.set(m.id, m);
           }
         });
+        localMembers.forEach((m) => {
+          if (!deletedMemberIds.has(m.id)) {
+            const existing = memberMap.get(m.id);
+            if (existing) {
+              memberMap.set(m.id, { ...existing, ...m });
+            } else {
+              memberMap.set(m.id, m);
+            }
+          }
+        });
         const mergedMembers = Array.from(memberMap.values());
-        setMembers(mergedMembers);
-        if (typeof window !== 'undefined') {
-          localStorage.setItem('btv_members', JSON.stringify(mergedMembers));
+        if (mergedMembers.length > 0) {
+          setMembers(mergedMembers);
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('btv_members', JSON.stringify(mergedMembers));
+          }
         }
       }
+
+      // 6. Campaigns
       if (dbCampaigns && dbCampaigns.length > 0) {
+        const filteredDbCampaigns = dbCampaigns.filter((c) => !deletedCampaignIds.has(c.id));
         if (localCampaigns.length > 0) {
           const cMap = new Map<string, Campaign>();
-          dbCampaigns.forEach((c) => cMap.set(c.id, c));
-          localCampaigns.forEach((c) => cMap.set(c.id, { ...cMap.get(c.id), ...c }));
-          setCampaigns(Array.from(cMap.values()));
+          filteredDbCampaigns.forEach((c) => cMap.set(c.id, c));
+          localCampaigns.forEach((c) => {
+            if (!deletedCampaignIds.has(c.id)) {
+              const existing = cMap.get(c.id);
+              cMap.set(c.id, existing ? { ...existing, ...c } : c);
+            }
+          });
+          const merged = Array.from(cMap.values());
+          setCampaigns(merged);
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('btv_campaigns', JSON.stringify(merged));
+          }
         } else {
-          setCampaigns(dbCampaigns);
+          setCampaigns(filteredDbCampaigns);
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('btv_campaigns', JSON.stringify(filteredDbCampaigns));
+          }
         }
+      }
+
+      // 7. Ma trận Phân quyền từ Supabase
+      if (dbRolePerms && typeof dbRolePerms === 'object' && Object.keys(dbRolePerms).length > 0) {
+        setRolePermissions((prev) => {
+          const merged = { ...DEFAULT_ROLE_PERMISSIONS, ...dbRolePerms, ...prev };
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('btv_role_permissions', JSON.stringify(merged));
+          }
+          return merged;
+        });
       }
 
       setIsSupabaseConnected(true);
@@ -387,116 +539,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // ----------------------------------------------------------------------------
   useEffect(() => {
     setIsMounted(true);
-    if (typeof window !== 'undefined') {
-      const sessionActive = localStorage.getItem('btv_session_active');
-      if (sessionActive === 'true') {
-        setIsAuthenticated(true);
-      }
-      const savedMemberId = localStorage.getItem('btv_current_member_id');
-      if (savedMemberId) {
-        setCurrentMemberId(savedMemberId);
-      }
-
-      // Khôi phục Danh sách Thành viên
-      const savedMembers = localStorage.getItem('btv_members');
-      if (savedMembers) {
-        try {
-          const parsed = JSON.parse(savedMembers);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            setMembers(parsed);
-          }
-        } catch (e) {}
-      }
-
-      // Khôi phục Công việc
-      const savedTasks = localStorage.getItem('btv_tasks');
-      if (savedTasks) {
-        try {
-          const parsed = JSON.parse(savedTasks);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            setTasks(parsed);
-          }
-        } catch (e) {}
-      }
-
-      // Khôi phục Văn bản đến
-      const savedDocs = localStorage.getItem('btv_docs');
-      if (savedDocs) {
-        try {
-          const parsed = JSON.parse(savedDocs);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            setIncomingDocs(parsed);
-          }
-        } catch (e) {}
-      }
-
-      // Khôi phục Mảng việc / Chiến dịch
-      const savedCampaigns = localStorage.getItem('btv_campaigns');
-      if (savedCampaigns) {
-        try {
-          const parsed = JSON.parse(savedCampaigns);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            setCampaigns(parsed);
-          }
-        } catch (e) {}
-      }
-
-      // Khôi phục Tin nhắn Chat
-      const savedChat = localStorage.getItem('btv_chat_messages');
-      if (savedChat) {
-        try {
-          const parsed = JSON.parse(savedChat);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            setChatMessages(parsed);
-          }
-        } catch (e) {}
-      }
-
-      // Khôi phục Bình luận
-      const savedComments = localStorage.getItem('btv_comments');
-      if (savedComments) {
-        try {
-          const parsed = JSON.parse(savedComments);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            setComments(parsed);
-          }
-        } catch (e) {}
-      }
-
-      // Khôi phục Nhật ký hoạt động
-      const savedLogs = localStorage.getItem('btv_activity_logs');
-      if (savedLogs) {
-        try {
-          const parsed = JSON.parse(savedLogs);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            setActivityLogs(parsed);
-          }
-        } catch (e) {}
-      }
-
-      // Khôi phục Ma trận Phân quyền
-      const savedPermissions = localStorage.getItem('btv_role_permissions');
-      if (savedPermissions) {
-        try {
-          const parsed = JSON.parse(savedPermissions);
-          if (parsed && typeof parsed === 'object') {
-            setRolePermissions(parsed);
-          }
-        } catch (e) {}
-      }
-
-      // Khôi phục Check-in Tuần
-      const savedCheckins = localStorage.getItem('btv_weekly_checkins');
-      if (savedCheckins) {
-        try {
-          const parsed = JSON.parse(savedCheckins);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            setWeeklyCheckins(parsed);
-          }
-        } catch (e) {}
-      }
-    }
-
     refreshDataFromSupabase();
 
     if (supabase && isSupabaseConfigured) {
@@ -509,7 +551,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           }
           if (session.user.email) {
             const userEmail = session.user.email.toLowerCase();
-            const matched = INITIAL_MEMBERS.find((m) => m.email.toLowerCase() === userEmail);
+            const savedM = typeof window !== 'undefined' ? localStorage.getItem('btv_members') : null;
+            const currentMembersList: Member[] = savedM ? JSON.parse(savedM) : INITIAL_MEMBERS;
+            const matched = currentMembersList.find((m) => m.email.toLowerCase() === userEmail);
             if (matched) {
               setCurrentMemberId(matched.id);
             }
@@ -529,7 +573,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           }
           if (session.user.email) {
             const userEmail = session.user.email.toLowerCase();
-            const matched = INITIAL_MEMBERS.find((m) => m.email.toLowerCase() === userEmail);
+            const savedM = typeof window !== 'undefined' ? localStorage.getItem('btv_members') : null;
+            const currentMembersList: Member[] = savedM ? JSON.parse(savedM) : INITIAL_MEMBERS;
+            const matched = currentMembersList.find((m) => m.email.toLowerCase() === userEmail);
             if (matched) {
               setCurrentMemberId(matched.id);
             }
@@ -727,6 +773,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (typeof window !== 'undefined') {
         localStorage.setItem('btv_role_permissions', JSON.stringify(updated));
       }
+      syncRolePermissionsToSupabase(updated);
       return updated;
     });
   };
@@ -746,6 +793,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
       return updated;
     });
+    updateMemberOnSupabase(memberId, { custom_permissions: permissions });
   };
 
   const resetRolePermissionsToDefault = () => {
@@ -753,6 +801,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (typeof window !== 'undefined') {
       localStorage.setItem('btv_role_permissions', JSON.stringify(DEFAULT_ROLE_PERMISSIONS));
     }
+    syncRolePermissionsToSupabase(DEFAULT_ROLE_PERMISSIONS);
   };
 
   const hasPermission = useCallback(
@@ -798,9 +847,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return updated;
     });
 
-    if (supabase && isSupabaseConfigured) {
-      supabase.from('members').update({ avatar_url: newAvatarUrl }).eq('id', memberId).then(() => {});
-    }
+    updateMemberOnSupabase(memberId, { avatar_url: newAvatarUrl });
   };
 
   // Check-in Tuần (Nhiệt kế Tinh thần)
@@ -885,9 +932,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
       return updated;
     });
-    if (supabase && isSupabaseConfigured) {
-      supabase.from('members').insert(newMember).then(() => {});
-    }
+    insertMemberToSupabase(newMember);
     return newMember;
   };
 
@@ -899,12 +944,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
       return updated;
     });
-    if (supabase && isSupabaseConfigured) {
-      supabase.from('members').update(updates).eq('id', memberId).then(() => {});
-    }
+    updateMemberOnSupabase(memberId, updates);
   };
 
   const deleteMember = (memberId: string) => {
+    addDeletedId('btv_deleted_member_ids', memberId);
     setMembers((prev) => {
       const updated = prev.filter((m) => m.id !== memberId);
       if (typeof window !== 'undefined') {
@@ -912,9 +956,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
       return updated;
     });
-    if (supabase && isSupabaseConfigured) {
-      supabase.from('members').delete().eq('id', memberId).then(() => {});
-    }
+    deleteMemberFromSupabase(memberId);
   };
 
   // ----------------------------------------------------------------------------
@@ -940,9 +982,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
       return updated;
     });
-    if (supabase && isSupabaseConfigured) {
-      supabase.from('campaigns').insert(newCamp).then(() => {});
-    }
+    insertCampaignToSupabase(newCamp);
     return newCamp;
   };
 
@@ -954,12 +994,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
       return updated;
     });
-    if (supabase && isSupabaseConfigured) {
-      supabase.from('campaigns').update(updates).eq('id', campId).then(() => {});
-    }
+    updateCampaignOnSupabase(campId, updates);
   };
 
   const deleteCampaign = (campId: string) => {
+    addDeletedId('btv_deleted_campaign_ids', campId);
     setCampaigns((prev) => {
       const updated = prev.filter((c) => c.id !== campId);
       if (typeof window !== 'undefined') {
@@ -967,23 +1006,50 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
       return updated;
     });
-    if (supabase && isSupabaseConfigured) {
-      supabase.from('campaigns').delete().eq('id', campId).then(() => {});
-    }
+    deleteCampaignFromSupabase(campId);
   };
 
   // ----------------------------------------------------------------------------
   // 6. XÓA & DỌN DẸP TOÀN BỘ DANH SÁCH ẢO
   // ----------------------------------------------------------------------------
   const clearDummyData = async () => {
-    // Lọc bỏ các task mẫu ảo (các task có ID bắt đầu bằng 'a' từ mock data hoặc do mock sinh ra)
+    const dummyTaskIds = [
+      'a1111111-1111-1111-1111-111111111111',
+      'a2222222-2222-2222-2222-222222222222',
+      'a3333333-3333-3333-3333-333333333333',
+      'a4444444-4444-4444-4444-444444444444',
+      'a5555555-5555-5555-5555-555555555555',
+      'a6666666-6666-6666-6666-666666666666',
+    ];
+    const dummyDocIds = [
+      'd1111111-1111-1111-1111-111111111111',
+      'd2222222-2222-2222-2222-222222222222',
+      'd3333333-3333-3333-3333-333333333333',
+      'd4444444-4444-4444-4444-444444444444',
+    ];
+
+    // Ghi nhận tombstone vĩnh viễn
+    tasks.forEach((t) => {
+      if (t.id.startsWith('a1') || t.id.startsWith('a2') || t.id.startsWith('a3') ||
+          t.id.startsWith('a4') || t.id.startsWith('a5') || t.id.startsWith('a6')) {
+        addDeletedId('btv_deleted_task_ids', t.id);
+      }
+    });
+    dummyTaskIds.forEach((id) => addDeletedId('btv_deleted_task_ids', id));
+
+    incomingDocs.forEach((d) => {
+      if (d.id.startsWith('d1') || d.id.startsWith('d2') || d.id.startsWith('d3') || d.id.startsWith('d4')) {
+        addDeletedId('btv_deleted_doc_ids', d.id);
+      }
+    });
+    dummyDocIds.forEach((id) => addDeletedId('btv_deleted_doc_ids', id));
+
     const realTasks = tasks.filter(
       (t) => !t.id.startsWith('a1') && !t.id.startsWith('a2') && !t.id.startsWith('a3') &&
              !t.id.startsWith('a4') && !t.id.startsWith('a5') && !t.id.startsWith('a6')
     );
     setTasks(realTasks);
 
-    // Lọc bỏ văn bản mẫu ảo
     const realDocs = incomingDocs.filter(
       (d) => !d.id.startsWith('d1') && !d.id.startsWith('d2') && !d.id.startsWith('d3') && !d.id.startsWith('d4')
     );
@@ -994,25 +1060,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       localStorage.setItem('btv_docs', JSON.stringify(realDocs));
     }
 
-    if (supabase && isSupabaseConfigured) {
-      try {
-        await supabase.from('tasks').delete().in('id', [
-          'a1111111-1111-1111-1111-111111111111',
-          'a2222222-2222-2222-2222-222222222222',
-          'a3333333-3333-3333-3333-333333333333',
-          'a4444444-4444-4444-4444-444444444444',
-          'a5555555-5555-5555-5555-555555555555',
-          'a6666666-6666-6666-6666-666666666666',
-        ]);
-        await supabase.from('incoming_documents').delete().in('id', [
-          'd1111111-1111-1111-1111-111111111111',
-          'd2222222-2222-2222-2222-222222222222',
-          'd3333333-3333-3333-3333-333333333333',
-          'd4444444-4444-4444-4444-444444444444',
-        ]);
-      } catch (err) {
-        console.warn('Lỗi dọn dẹp Supabase dummy data:', err);
-      }
+    for (const tid of dummyTaskIds) {
+      deleteTaskFromSupabase(tid);
+    }
+    for (const did of dummyDocIds) {
+      deleteIncomingDocFromSupabase(did);
     }
   };
 
@@ -1105,6 +1157,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
 
   const deleteTask = (taskId: string) => {
+    addDeletedId('btv_deleted_task_ids', taskId);
     setTasks((prev) => {
       const updated = prev.filter((t) => t.id !== taskId);
       if (typeof window !== 'undefined') {
@@ -1393,6 +1446,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
     insertIncomingDocToSupabase(newDoc);
     return newDoc;
+  };
+
+  const deleteIncomingDoc = (docId: string) => {
+    addDeletedId('btv_deleted_doc_ids', docId);
+    setIncomingDocs((prev) => {
+      const updated = prev.filter((d) => d.id !== docId);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('btv_docs', JSON.stringify(updated));
+      }
+      return updated;
+    });
+    deleteIncomingDocFromSupabase(docId);
   };
 
   const assignTaskFromDocument = (
@@ -1860,6 +1925,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         rejectTask,
         manualRemind,
         addIncomingDoc,
+        deleteIncomingDoc,
         assignTaskFromDocument,
         createTasksFromDoc,
         addComment,

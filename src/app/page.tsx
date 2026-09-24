@@ -143,6 +143,27 @@ export default function Home() {
         }
         return <AdminView />;
       case 'bao_cao':
+        if (!hasPermission('view_reports_kpi')) {
+          return (
+            <div className="bg-card rounded-3xl p-8 border border-border text-center max-w-lg mx-auto my-12 space-y-4 shadow-sm animate-in fade-in">
+              <div className="w-14 h-14 rounded-2xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center mx-auto">
+                <ShieldAlert className="w-7 h-7" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-foreground">Giới hạn Báo cáo & Đánh giá KPI</h3>
+                <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
+                  Phân hệ Báo cáo & Thống kê KPI tiến độ chỉ dành cho các đồng chí được cấp quyền theo dõi tổng hợp.
+                </p>
+              </div>
+              <button
+                onClick={() => setActiveTab('trang_chu')}
+                className="px-5 py-2.5 rounded-xl bg-primary text-primary-foreground text-xs font-bold shadow-xs hover:bg-primary/90 transition-all cursor-pointer"
+              >
+                Về Bảng tin Tổng quan
+              </button>
+            </div>
+          );
+        }
         return <ReportsView />;
       case 'huong_dan_ios':
         return <IosGuideView />;
