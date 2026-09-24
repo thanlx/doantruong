@@ -103,15 +103,53 @@ function addDeletedId(key: string, id: string) {
   } catch (e) {}
 }
 
+function isMockId(id: string): boolean {
+  if (!id || typeof id !== 'string') return false;
+  return /^[acd]\d{7}-\d{4}-\d{4}-\d{4}-\d{12}$|^m\d+$|^n\d+$|^w\d+$|^wc-\d+$/.test(id);
+}
+
+function ensureCleanCache() {
+  if (typeof window === 'undefined') return;
+  try {
+    const MOCK_CLEARED_FLAG = 'btv_mock_data_cleared_v2026_final';
+    if (localStorage.getItem(MOCK_CLEARED_FLAG) !== 'true') {
+      localStorage.removeItem('btv_tasks');
+      localStorage.removeItem('btv_docs');
+      localStorage.removeItem('btv_campaigns');
+      localStorage.removeItem('btv_chat_messages');
+      localStorage.removeItem('btv_comments');
+      localStorage.removeItem('btv_activity_logs');
+      localStorage.removeItem('btv_weekly_checkins');
+      localStorage.removeItem('btv_deleted_task_ids');
+      localStorage.removeItem('btv_deleted_campaign_ids');
+      localStorage.removeItem('btv_deleted_doc_ids');
+      localStorage.setItem('btv_tasks', '[]');
+      localStorage.setItem('btv_docs', '[]');
+      localStorage.setItem('btv_campaigns', '[]');
+      localStorage.setItem('btv_chat_messages', '[]');
+      localStorage.setItem('btv_comments', '[]');
+      localStorage.setItem('btv_activity_logs', '[]');
+      localStorage.setItem('btv_weekly_checkins', '[]');
+      localStorage.setItem(MOCK_CLEARED_FLAG, 'true');
+    }
+  } catch (e) {}
+}
+
 function getStoredItem<T>(key: string, fallback: T, deletedKey?: string): T {
   if (typeof window === 'undefined') return fallback;
   try {
+    ensureCleanCache();
     const raw = localStorage.getItem(key);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && deletedKey) {
-        const deletedSet = getDeletedIdSet(deletedKey);
-        return parsed.filter((item: any) => item && item.id && !deletedSet.has(item.id)) as unknown as T;
+      if (Array.isArray(parsed)) {
+        const deletedSet = deletedKey ? getDeletedIdSet(deletedKey) : new Set<string>();
+        return parsed.filter((item: any) => {
+          if (!item || !item.id) return false;
+          if (deletedSet.has(item.id)) return false;
+          if (key !== 'btv_members' && isMockId(item.id)) return false;
+          return true;
+        }) as unknown as T;
       }
       return parsed;
     }
@@ -409,16 +447,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
 
       // 1. Tasks
-      if (dbTasks && dbTasks.length > 0) {
-        const filteredDbTasks = dbTasks.filter((t) => !deletedTaskIds.has(t.id));
-        if (localTasks.length > 0) {
+      if (dbTasks !== null) {
+        const filteredDbTasks = dbTasks.filter((t) => !deletedTaskIds.has(t.id) && !isMockId(t.id));
+        const filteredLocalTasks = localTasks.filter((t) => !deletedTaskIds.has(t.id) && !isMockId(t.id));
+        if (filteredLocalTasks.length > 0) {
           const taskMap = new Map<string, Task>();
           filteredDbTasks.forEach((t) => taskMap.set(t.id, t));
-          localTasks.forEach((t) => {
-            if (!deletedTaskIds.has(t.id)) {
-              const existing = taskMap.get(t.id);
-              taskMap.set(t.id, existing ? { ...existing, ...t } : t);
-            }
+          filteredLocalTasks.forEach((t) => {
+            const existing = taskMap.get(t.id);
+            taskMap.set(t.id, existing ? { ...existing, ...t } : t);
           });
           const merged = Array.from(taskMap.values());
           setTasks(merged);
@@ -434,19 +471,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
 
       // 2. Chat
-      if (dbChat && dbChat.length > 0) setChatMessages(dbChat);
+      if (dbChat !== null) {
+        const cleanChat = dbChat.filter((m) => !isMockId(m.id));
+        setChatMessages(cleanChat);
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('btv_chat_messages', JSON.stringify(cleanChat));
+        }
+      }
 
       // 3. Docs
-      if (dbDocs && dbDocs.length > 0) {
-        const filteredDbDocs = dbDocs.filter((d) => !deletedDocIds.has(d.id));
-        if (localDocs.length > 0) {
+      if (dbDocs !== null) {
+        const filteredDbDocs = dbDocs.filter((d) => !deletedDocIds.has(d.id) && !isMockId(d.id));
+        const filteredLocalDocs = localDocs.filter((d) => !deletedDocIds.has(d.id) && !isMockId(d.id));
+        if (filteredLocalDocs.length > 0) {
           const docMap = new Map<string, IncomingDocument>();
           filteredDbDocs.forEach((d) => docMap.set(d.id, d));
-          localDocs.forEach((d) => {
-            if (!deletedDocIds.has(d.id)) {
-              const existing = docMap.get(d.id);
-              docMap.set(d.id, existing ? { ...existing, ...d } : d);
-            }
+          filteredLocalDocs.forEach((d) => {
+            const existing = docMap.get(d.id);
+            docMap.set(d.id, existing ? { ...existing, ...d } : d);
           });
           const merged = Array.from(docMap.values());
           setIncomingDocs(merged);
@@ -462,8 +504,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
 
       // 4. Comments & Logs
-      if (dbComments && dbComments.length > 0) setComments(dbComments);
-      if (dbLogs && dbLogs.length > 0) setActivityLogs(dbLogs);
+      if (dbComments !== null) {
+        setComments(dbComments);
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('btv_comments', JSON.stringify(dbComments));
+        }
+      }
+      if (dbLogs !== null) {
+        setActivityLogs(dbLogs);
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('btv_activity_logs', JSON.stringify(dbLogs));
+        }
+      }
 
       // 5. Members (Hợp nhất bảo đảm không bao giờ phục sinh thành viên đã bị xóa)
       if (dbMembers && dbMembers.length > 0) {
@@ -493,16 +545,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
 
       // 6. Campaigns
-      if (dbCampaigns && dbCampaigns.length > 0) {
-        const filteredDbCampaigns = dbCampaigns.filter((c) => !deletedCampaignIds.has(c.id));
-        if (localCampaigns.length > 0) {
+      if (dbCampaigns !== null) {
+        const filteredDbCampaigns = dbCampaigns.filter((c) => !deletedCampaignIds.has(c.id) && !isMockId(c.id));
+        const filteredLocalCampaigns = localCampaigns.filter((c) => !deletedCampaignIds.has(c.id) && !isMockId(c.id));
+        if (filteredLocalCampaigns.length > 0) {
           const cMap = new Map<string, Campaign>();
           filteredDbCampaigns.forEach((c) => cMap.set(c.id, c));
-          localCampaigns.forEach((c) => {
-            if (!deletedCampaignIds.has(c.id)) {
-              const existing = cMap.get(c.id);
-              cMap.set(c.id, existing ? { ...existing, ...c } : c);
-            }
+          filteredLocalCampaigns.forEach((c) => {
+            const existing = cMap.get(c.id);
+            cMap.set(c.id, existing ? { ...existing, ...c } : c);
           });
           const merged = Array.from(cMap.values());
           setCampaigns(merged);

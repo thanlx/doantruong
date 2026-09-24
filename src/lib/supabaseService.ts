@@ -16,11 +16,7 @@ import {
   PermissionKey,
 } from '@/types';
 import {
-  INITIAL_TASKS,
   INITIAL_MEMBERS,
-  INITIAL_DOCUMENTS,
-  INITIAL_CAMPAIGNS,
-  INITIAL_CHAT_MESSAGES,
   DEFAULT_ROLE_PERMISSIONS,
 } from './mockData';
 
@@ -793,9 +789,9 @@ export async function seedSupabaseIfEmpty(): Promise<boolean> {
       return false;
     }
 
-    console.log('Cơ sở dữ liệu Supabase đang trống, tiến hành khởi tạo dữ liệu chuẩn...');
+    console.log('Cơ sở dữ liệu Supabase chưa có thành viên, tiến hành khởi tạo danh sách BTV chuẩn...');
 
-    // 1. Members
+    // Khởi tạo 6 thành viên Ban Thường vụ chuẩn
     const membersPayload = INITIAL_MEMBERS.map((m) => ({
       id: m.id,
       email: m.email,
@@ -808,63 +804,6 @@ export async function seedSupabaseIfEmpty(): Promise<boolean> {
       alias: m.alias || [],
     }));
     await supabase.from('members').upsert(membersPayload, { onConflict: 'id' });
-
-    // 2. Campaigns
-    const campaignsPayload = INITIAL_CAMPAIGNS.map((c) => ({
-      id: c.id,
-      name: c.name,
-      description: c.description,
-      start_date: c.start_date,
-      end_date: c.end_date,
-      status: c.status,
-      color: c.color,
-      created_by: c.created_by,
-    }));
-    await supabase.from('campaigns').upsert(campaignsPayload, { onConflict: 'id' });
-
-    // 3. Documents
-    const docsPayload = INITIAL_DOCUMENTS.map((d) => ({
-      id: d.id,
-      don_vi_gui: d.don_vi_gui,
-      noi_dung: d.noi_dung,
-      so_ky_hieu: d.so_ky_hieu,
-      ngay_nhan: d.ngay_nhan,
-      ngay_chuyen_xu_ly: d.ngay_chuyen_xu_ly || null,
-      nguoi_nhan_xu_ly: d.nguoi_nhan_xu_ly,
-      thoi_han_xu_ly: d.thoi_han_xu_ly || null,
-      ghi_chu: d.ghi_chu,
-      created_by: d.created_by,
-      file_path: d.file_url || null,
-    }));
-    await supabase.from('incoming_documents').upsert(docsPayload, { onConflict: 'id' });
-
-    // 4. Tasks
-    const tasksPayload = INITIAL_TASKS.map((t) => ({
-      id: t.id,
-      campaign_id: t.campaign_id,
-      source_document_id: t.source_document_id,
-      title: t.title,
-      description: t.description,
-      owner_id: t.owner_id,
-      created_by: t.created_by,
-      priority: t.priority,
-      status: t.status,
-      approval_scope: t.approval_scope,
-      due_at: t.due_at,
-      created_at: t.created_at,
-      updated_at: t.updated_at,
-    }));
-    await supabase.from('tasks').upsert(tasksPayload, { onConflict: 'id' });
-
-    // 5. Chat messages
-    const chatPayload = INITIAL_CHAT_MESSAGES.map((m) => ({
-      id: m.id,
-      member_id: m.member_id,
-      body: m.body,
-      reply_to: m.reply_to || null,
-      created_at: m.created_at,
-    }));
-    await supabase.from('chat_messages').upsert(chatPayload, { onConflict: 'id' });
 
     return true;
   } catch (err) {
