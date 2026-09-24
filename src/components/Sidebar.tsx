@@ -27,13 +27,17 @@ import {
 } from 'lucide-react';
 
 export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
-  const { activeTab, setActiveTab, tasks, currentMember, logout } = useApp();
+  const { activeTab, setActiveTab, tasks, currentMember, logout, hasPermission } = useApp();
 
   const overdueCount = tasks.filter(
     (t) => t.status !== 'hoan_thanh' && t.status !== 'huy' && t.due_at && new Date(t.due_at) < new Date()
   ).length;
 
   const waitingApprovalCount = tasks.filter((t) => t.status === 'cho_duyet').length;
+
+  const canAccessAdmin = hasPermission('access_admin_portal');
+  const canAccessCoordinator = hasPermission('access_coordinator');
+  const canViewReports = hasPermission('view_reports_kpi');
 
   const navItems = [
     { id: 'trang_chu', label: 'Trang chủ', icon: Home },
@@ -42,17 +46,35 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
     { id: 'lich', label: 'Lịch làm việc', icon: Calendar },
     { id: 'du_an', label: 'Dự án / Mảng việc', icon: FolderGit2 },
     { id: 'van_ban_den', label: 'Sổ văn bản đến', icon: FileText },
-    {
-      id: 'dieu_phoi',
-      label: 'Bảng điều phối',
-      icon: Compass,
-      badge: overdueCount + waitingApprovalCount > 0 ? overdueCount + waitingApprovalCount : undefined,
-      badgeColor: 'bg-destructive text-destructive-foreground',
-    },
+    ...(canAccessCoordinator
+      ? [
+          {
+            id: 'dieu_phoi',
+            label: 'Bảng điều phối',
+            icon: Compass,
+            badge: overdueCount + waitingApprovalCount > 0 ? overdueCount + waitingApprovalCount : undefined,
+            badgeColor: 'bg-destructive text-destructive-foreground',
+          },
+        ]
+      : []),
     { id: 'chat', label: 'Chat nhóm BTV', icon: MessageSquare },
     { id: 'thanh_vien', label: 'Thành viên', icon: Users },
-    { id: 'admin', label: 'Quản trị Admin', icon: ShieldAlert, badge: 'Admin', badgeColor: 'bg-destructive text-destructive-foreground' },
-    { id: 'bao_cao', label: 'Báo cáo & Thống kê', icon: BarChart3 },
+    ...(canAccessAdmin
+      ? [
+          {
+            id: 'admin',
+            label: 'Quản trị Admin',
+            icon: ShieldAlert,
+            badge: 'Admin',
+            badgeColor: 'bg-destructive text-destructive-foreground',
+          },
+        ]
+      : []),
+    ...(canViewReports
+      ? [
+          { id: 'bao_cao', label: 'Báo cáo & Thống kê', icon: BarChart3 },
+        ]
+      : []),
     { id: 'huong_dan_ios', label: 'Cài đặt iOS (PWA)', icon: Smartphone },
     { id: 'thiet_ke', label: 'Hệ thống thiết kế', icon: Palette },
     { id: 'cai_dat', label: 'Cài đặt & Tài khoản', icon: Settings },

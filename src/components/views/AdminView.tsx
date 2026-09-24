@@ -28,8 +28,15 @@ import {
   Calendar,
   Layers,
   Search,
+  Camera,
+  Sliders,
+  RotateCcw,
+  Shield,
+  UserCheck,
+  Key,
 } from 'lucide-react';
-import { Member, MemberRole, Campaign } from '@/types';
+import { Member, MemberRole, Campaign, PermissionKey } from '@/types';
+import { SYSTEM_PERMISSIONS, DEFAULT_ROLE_PERMISSIONS } from '@/lib/mockData';
 import AvatarWithFallback from '@/components/AvatarWithFallback';
 
 export default function AdminView() {
@@ -51,9 +58,22 @@ export default function AdminView() {
     setIsCreateTaskModalOpen,
     setIsCreateDocModalOpen,
     setIsCreateCampaignModalOpen,
+    rolePermissions,
+    updateRolePermissions,
+    updateMemberCustomPermissions,
+    resetRolePermissionsToDefault,
+    hasPermission,
+    openAvatarModal,
   } = useApp();
 
+  // Kiểm tra phân quyền truy cập trang Admin
+  const canAccessAdmin = hasPermission('access_admin_portal');
+
   const [activeAdminTab, setActiveAdminTab] = useState<'members' | 'roles' | 'logs' | 'campaigns' | 'tasks' | 'cleanup'>('members');
+
+  // Sub-tabs trong mục Vai trò & Phân quyền
+  const [rolesSubTab, setRolesSubTab] = useState<'roles_matrix' | 'member_override'>('roles_matrix');
+  const [selectedMemberForPerms, setSelectedMemberForPerms] = useState<string>(members[0]?.id || '');
 
   // State thêm / sửa thành viên
   const [isAddingMember, setIsAddingMember] = useState(false);
@@ -79,6 +99,70 @@ export default function AdminView() {
   const showToast = (msg: string) => {
     setSuccessToast(msg);
     setTimeout(() => setSuccessToast(null), 3500);
+  };
+
+  // Xử lý bật/tắt quyền theo vai trò
+  const handleToggleRolePermission = (role: MemberRole, permKey: PermissionKey) => {
+    if (role === 'bi_thu') {
+      alert('Đồng chí Bí thư Đoàn trường luôn có toàn quyền tuyệt đối theo Quy chế Đoàn!');
+      return;
+    }
+
+    const currentKeys = rolePermissions[role] || DEFAULT_ROLE_PERMISSIONS[role] || [];
+    const isAssigned = currentKeys.includes(permKey);
+    const updatedKeys = isAssigned
+      ? currentKeys.filter((k) => k !== permKey)
+      : [...currentKeys, permKey];
+
+    updateRolePermissions(role, updatedKeys);
+    showToast(
+      `Đã ${isAssigned ? 'thu hồi' : 'cấp'} quyền "${SYSTEM_PERMISSIONS.find((p) => p.key === permKey)?.label}" cho vai trò ${
+        role === 'pho_bi_thu' ? 'Phó Bí thư' : role === 'chanh_van_phong' ? 'Chánh VP' : 'Ủy viên BTV'
+      }`
+    );
+  };
+
+  // Xử lý bật/tắt quyền riêng cho từng thành viên
+  const handleToggleMemberPermission = (memberId: string, permKey: PermissionKey) => {
+    const target = members.find((m) => m.id === memberId);
+    if (!target) return;
+
+    if (target.role === 'bi_thu') {
+      alert('Đồng chí Bí thư Đoàn trường luôn có toàn quyền tuyệt đối theo Quy chế Đoàn!');
+      return;
+    }
+
+    const currentKeys =
+      target.custom_permissions && target.custom_permissions.length > 0
+        ? target.custom_permissions
+        : [...(rolePermissions[target.role] || DEFAULT_ROLE_PERMISSIONS[target.role] || [])];
+
+    const isAssigned = currentKeys.includes(permKey);
+    const updated = isAssigned
+      ? currentKeys.filter((k) => k !== permKey)
+      : [...currentKeys, permKey];
+
+    updateMemberCustomPermissions(memberId, updated);
+    showToast(
+      `Đã ${isAssigned ? 'thu hồi' : 'cấp'} quyền riêng "${SYSTEM_PERMISSIONS.find((p) => p.key === permKey)?.label}" cho đ/c ${target.full_name}`
+    );
+  };
+
+  // Khôi phục quyền thành viên theo chức vụ
+  const handleResetMemberCustomPerms = (memberId: string) => {
+    const target = members.find((m) => m.id === memberId);
+    if (!target) return;
+    updateMemberCustomPermissions(memberId, undefined);
+    showToast(`Đã khôi phục quyền của đ/c ${target.full_name} theo chức vụ ${target.role}`);
+  };
+
+  // Cấp toàn bộ 10 quyền cho thành viên
+  const handleGrantAllPermsToMember = (memberId: string) => {
+    const target = members.find((m) => m.id === memberId);
+    if (!target) return;
+    const allKeys = SYSTEM_PERMISSIONS.map((p) => p.key);
+    updateMemberCustomPermissions(memberId, allKeys);
+    showToast(`Đã cấp toàn bộ 10 quyền hệ thống cho đ/c ${target.full_name}`);
   };
 
   // Đếm số lượng task ảo mẫu
@@ -167,6 +251,20 @@ export default function AdminView() {
       t.title.toLowerCase().includes(taskSearch.toLowerCase()) ||
       (t.description && t.description.toLowerCase().includes(taskSearch.toLowerCase()))
   );
+
+  if (!canAccessAdmin) {
+    return (
+      <div className="flex flex-col items-center justify-center p-8 sm:p-12 text-center bg-card rounded-3xl border border-destructive/20 shadow-xs max-w-xl mx-auto my-12 space-y-4">
+        <div className="w-16 h-16 rounded-full bg-destructive/10 text-destructive flex items-center justify-center">
+          <ShieldAlert className="w-8 h-8" />
+        </div>
+        <h3 className="text-xl font-bold text-foreground">Không có quyền truy cập Trang Quản trị</h3>
+        <p className="text-xs text-muted-foreground leading-relaxed">
+          Đồng chí <b>{currentMember.full_name}</b> với vai trò hiện tại không có thẩm quyền truy cập Phân hệ Quản trị Hệ thống (Admin Portal). Chỉ Thường trực Đoàn trường, Chánh văn phòng hoặc các đồng chí được phân quyền riêng <code className="px-1.5 py-0.5 rounded bg-muted font-mono text-[11px]">access_admin_portal</code> mới có quyền thực hiện.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-5 pb-6">
@@ -321,6 +419,42 @@ export default function AdminView() {
                 <span>{editingMemberId ? 'Chỉnh sửa thông tin thành viên' : 'Thêm đồng chí mới vào BTV'}</span>
               </div>
 
+              {/* Avatar Preview & Upload Action */}
+              <div className="flex items-center gap-3 p-3 rounded-2xl bg-muted/30 border border-border">
+                <AvatarWithFallback
+                  src={
+                    editingMemberId
+                      ? members.find((m) => m.id === editingMemberId)?.avatar_url
+                      : undefined
+                  }
+                  name={memberName || 'BTV'}
+                  className="w-12 h-12 rounded-full ring-2 ring-border shrink-0"
+                />
+                <div className="flex-1 min-w-0">
+                  <div className="font-bold text-foreground text-xs">Ảnh đại diện thành viên</div>
+                  <div className="text-[10px] text-muted-foreground truncate">
+                    Tải ảnh từ máy tính (nén chuẩn &lt;50KB), chọn mẫu Đoàn thanh niên hoặc dán link ảnh
+                  </div>
+                </div>
+                {editingMemberId ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const target = members.find((m) => m.id === editingMemberId);
+                      if (target) openAvatarModal(target);
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-primary/10 text-primary hover:bg-primary/20 text-xs font-bold flex items-center gap-1.5 transition-colors shrink-0"
+                  >
+                    <Camera className="w-3.5 h-3.5" />
+                    <span>Đổi ảnh đại diện</span>
+                  </button>
+                ) : (
+                  <span className="text-[11px] text-muted-foreground italic shrink-0">
+                    (Có thể đổi avatar sau khi tạo)
+                  </span>
+                )}
+              </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="space-y-1">
                   <label className="font-bold text-foreground">Họ và tên (*)</label>
@@ -446,13 +580,32 @@ export default function AdminView() {
 
                         <td className="py-3.5 px-4">
                           <div className="flex items-center gap-3">
-                            <AvatarWithFallback
-                              src={m.avatar_url}
-                              name={m.full_name}
-                              className="w-9 h-9 rounded-full ring-1 ring-border shrink-0"
-                            />
+                            <div
+                              className="relative group cursor-pointer shrink-0"
+                              onClick={() => openAvatarModal(m)}
+                              title="Bấm để thay đổi ảnh đại diện"
+                            >
+                              <AvatarWithFallback
+                                src={m.avatar_url}
+                                name={m.full_name}
+                                className="w-9 h-9 rounded-full ring-1 ring-border group-hover:ring-primary transition-all"
+                              />
+                              <div className="absolute inset-0 bg-black/40 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                <Camera className="w-3.5 h-3.5 text-white" />
+                              </div>
+                            </div>
                             <div>
-                              <div className="font-bold text-foreground text-xs">{m.full_name}</div>
+                              <div className="font-bold text-foreground text-xs flex items-center gap-1.5 flex-wrap">
+                                <span>{m.full_name}</span>
+                                {m.custom_permissions && m.custom_permissions.length > 0 && (
+                                  <span
+                                    className="px-1.5 py-0.5 rounded-full text-[9px] bg-amber-500/10 text-amber-600 dark:text-amber-400 font-bold border border-amber-500/20"
+                                    title={`Đang áp dụng ${m.custom_permissions.length} quyền riêng`}
+                                  >
+                                    Quyền riêng ({m.custom_permissions.length})
+                                  </span>
+                                )}
+                              </div>
                               <div className="text-[10px] text-muted-foreground font-mono">{m.email}</div>
                             </div>
                           </div>
@@ -494,6 +647,24 @@ export default function AdminView() {
                         <td className="py-3.5 px-4 text-center">
                           <div className="inline-flex items-center justify-center gap-1.5">
                             <button
+                              onClick={() => openAvatarModal(m)}
+                              className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-emerald-600 transition-colors"
+                              title="Thay đổi ảnh đại diện"
+                            >
+                              <Camera className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => {
+                                setSelectedMemberForPerms(m.id);
+                                setRolesSubTab('member_override');
+                                setActiveAdminTab('roles');
+                              }}
+                              className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-indigo-600 transition-colors"
+                              title="Phân quyền riêng cho đồng chí này"
+                            >
+                              <Sliders className="w-4 h-4" />
+                            </button>
+                            <button
                               onClick={() => startEditMember(m)}
                               className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-[#0B5CFF] transition-colors"
                               title="Chỉnh sửa thông tin"
@@ -527,18 +698,52 @@ export default function AdminView() {
                 <div key={m.id} className="p-4 space-y-3">
                   <div className="flex items-center justify-between gap-3">
                     <div className="flex items-center gap-3">
-                      <AvatarWithFallback
-                        src={m.avatar_url}
-                        name={m.full_name}
-                        className="w-10 h-10 rounded-full ring-2 ring-border shrink-0"
-                      />
+                      <div
+                        className="relative group cursor-pointer shrink-0"
+                        onClick={() => openAvatarModal(m)}
+                        title="Bấm để thay đổi ảnh đại diện"
+                      >
+                        <AvatarWithFallback
+                          src={m.avatar_url}
+                          name={m.full_name}
+                          className="w-10 h-10 rounded-full ring-2 ring-border shrink-0"
+                        />
+                        <div className="absolute inset-0 bg-black/40 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                          <Camera className="w-4 h-4 text-white" />
+                        </div>
+                      </div>
                       <div>
-                        <h4 className="font-bold text-foreground text-xs">{m.full_name}</h4>
+                        <h4 className="font-bold text-foreground text-xs flex items-center gap-1.5 flex-wrap">
+                          <span>{m.full_name}</span>
+                          {m.custom_permissions && m.custom_permissions.length > 0 && (
+                            <span className="px-1.5 py-0.2 rounded-full text-[9px] bg-amber-500/10 text-amber-600 font-bold border border-amber-500/20">
+                              Quyền riêng ({m.custom_permissions.length})
+                            </span>
+                          )}
+                        </h4>
                         <span className="text-[10px] text-muted-foreground font-mono">{m.email}</span>
                       </div>
                     </div>
 
                     <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => openAvatarModal(m)}
+                        className="p-2 rounded-xl bg-muted text-muted-foreground hover:text-emerald-600"
+                        title="Đổi avatar"
+                      >
+                        <Camera className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => {
+                          setSelectedMemberForPerms(m.id);
+                          setRolesSubTab('member_override');
+                          setActiveAdminTab('roles');
+                        }}
+                        className="p-2 rounded-xl bg-muted text-muted-foreground hover:text-indigo-600"
+                        title="Phân quyền riêng"
+                      >
+                        <Sliders className="w-4 h-4" />
+                      </button>
                       <button
                         onClick={() => startEditMember(m)}
                         className="p-2 rounded-xl bg-muted text-muted-foreground hover:text-primary"
@@ -595,142 +800,510 @@ export default function AdminView() {
       )}
 
       {/* ========================================================================= */}
-      {/* TAB: VAI TRÒ & PHÂN QUYỀN (THEO THIẾT KẾ 11-ADMIN-PERMISSIONS.PNG) */}
+      {/* TAB: VAI TRÒ & PHÂN QUYỀN (QUẢN TRỊ MA TRẬN & PHÂN QUYỀN RIÊNG BIỆT) */}
       {/* ========================================================================= */}
       {activeAdminTab === 'roles' && (
         <div className="space-y-6 animate-in fade-in duration-150">
-          <div className="bg-card rounded-3xl p-6 border border-border shadow-xs space-y-5">
-            <div className="flex items-center justify-between pb-3 border-b border-border">
-              <div className="flex items-center gap-2">
-                <ShieldCheck className="w-5 h-5 text-[#10B981]" />
-                <div>
-                  <h4 className="text-sm sm:text-base font-bold text-foreground">
-                    Ma trận Phân quyền 4 Vai trò Ban Thường vụ
-                  </h4>
-                  <p className="text-xs text-muted-foreground">
-                    Quy định rõ ràng thẩm quyền duyệt việc, đôn đốc, tiếp nhận văn bản và phân công nhiệm vụ
-                  </p>
-                </div>
+          {/* Sub-nav: Chọn Chế độ Phân quyền */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 bg-card rounded-3xl border border-border shadow-xs">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                <ShieldCheck className="w-5 h-5 text-[#0B5CFF]" />
               </div>
-              <span className="text-xs font-bold px-3 py-1 rounded-full bg-[#ECFDF5] text-[#059669] border border-[#A7F3D0]">
-                Quy chế Ban hành 2026
-              </span>
-            </div>
-
-            {/* 4 Card tóm tắt vai trò */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
-              <div className="p-4 rounded-2xl bg-[#FEF2F2] border border-[#FECACA] space-y-2">
-                <div className="font-bold text-[#DC2626] flex items-center gap-1.5 text-xs">
-                  <span className="w-2 h-2 rounded-full bg-[#DC2626]" />
-                  <span>Bí thư Đoàn trường</span>
-                </div>
-                <ul className="text-[11px] text-muted-foreground space-y-1 list-disc list-inside">
-                  <li>Toàn quyền chỉ đạo và điều hành</li>
-                  <li>Duyệt việc chuyên môn & chủ trương</li>
-                  <li>Duyệt việc hành chính & văn bản</li>
-                  <li>Đôn đốc công việc toàn hệ thống</li>
-                </ul>
-              </div>
-
-              <div className="p-4 rounded-2xl bg-[#EBF2FF] border border-[#BFDBFE] space-y-2">
-                <div className="font-bold text-[#0B5CFF] flex items-center gap-1.5 text-xs">
-                  <span className="w-2 h-2 rounded-full bg-[#0B5CFF]" />
-                  <span>Phó Bí thư Đoàn trường</span>
-                </div>
-                <ul className="text-[11px] text-muted-foreground space-y-1 list-disc list-inside">
-                  <li>Chỉ đạo mảng công tác được giao</li>
-                  <li>Duyệt việc chuyên môn & hành chính</li>
-                  <li>Giao việc và phân bổ nhiệm vụ</li>
-                  <li>Đôn đốc công việc thuộc mảng</li>
-                </ul>
-              </div>
-
-              <div className="p-4 rounded-2xl bg-[#FFFBEB] border border-[#FDE68A] space-y-2">
-                <div className="font-bold text-[#D97706] flex items-center gap-1.5 text-xs">
-                  <span className="w-2 h-2 rounded-full bg-[#D97706]" />
-                  <span>Chánh Văn phòng</span>
-                </div>
-                <ul className="text-[11px] text-muted-foreground space-y-1 list-disc list-inside">
-                  <li>Quản trị Sổ văn bản đến 8 cột</li>
-                  <li><b>Duyệt việc hành chính</b> (hậu cần, báo cáo)</li>
-                  <li>Điều phối tiến độ và gửi đôn đốc</li>
-                  <li>Không duyệt việc chuyên môn/chủ trương</li>
-                </ul>
-              </div>
-
-              <div className="p-4 rounded-2xl bg-muted/40 border border-border space-y-2">
-                <div className="font-bold text-foreground flex items-center gap-1.5 text-xs">
-                  <span className="w-2 h-2 rounded-full bg-slate-400" />
-                  <span>Ủy viên BTV</span>
-                </div>
-                <ul className="text-[11px] text-muted-foreground space-y-1 list-disc list-inside">
-                  <li>Nhận việc và cập nhật tiến độ</li>
-                  <li>Nộp duyệt hoàn thành nhiệm vụ</li>
-                  <li>Tham gia kênh Chat BTV & Thảo luận</li>
-                  <li>Tự tạo việc cá nhân để quản lý</li>
-                </ul>
+              <div>
+                <h4 className="text-sm sm:text-base font-bold text-foreground">
+                  Hệ thống Phân quyền Truy cập & Thẩm quyền Ban Thường vụ (RBAC)
+                </h4>
+                <p className="text-xs text-muted-foreground">
+                  Điều chỉnh linh hoạt quyền hạn theo 4 vai trò chính hoặc tùy biến phân quyền riêng cho từng đồng chí
+                </p>
               </div>
             </div>
 
-            {/* Bảng Ma trận Quyền hạn Chi tiết */}
-            <div className="overflow-x-auto pt-2">
-              <table className="w-full text-left text-xs border border-border rounded-2xl overflow-hidden">
-                <thead>
-                  <tr className="bg-muted/60 border-b border-border text-[11px] font-bold text-muted-foreground uppercase">
-                    <th className="py-3 px-4">Quyền hạn / Chức năng</th>
-                    <th className="py-3 px-3 text-center">Bí thư</th>
-                    <th className="py-3 px-3 text-center">Phó Bí thư</th>
-                    <th className="py-3 px-3 text-center">Chánh VP</th>
-                    <th className="py-3 px-3 text-center">Ủy viên BTV</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  <tr className="hover:bg-muted/20">
-                    <td className="py-3 px-4 font-semibold text-foreground">Xem toàn bộ công việc & báo cáo</td>
-                    <td className="py-3 px-3 text-center text-[#10B981] font-bold">✔</td>
-                    <td className="py-3 px-3 text-center text-[#10B981] font-bold">✔</td>
-                    <td className="py-3 px-3 text-center text-[#10B981] font-bold">✔</td>
-                    <td className="py-3 px-3 text-center text-[#10B981] font-bold">✔</td>
-                  </tr>
-                  <tr className="hover:bg-muted/20">
-                    <td className="py-3 px-4 font-semibold text-foreground">Giao việc & Phân công nhiệm vụ</td>
-                    <td className="py-3 px-3 text-center text-[#10B981] font-bold">✔</td>
-                    <td className="py-3 px-3 text-center text-[#10B981] font-bold">✔</td>
-                    <td className="py-3 px-3 text-center text-[#10B981] font-bold">✔</td>
-                    <td className="py-3 px-3 text-center text-muted-foreground/40">-</td>
-                  </tr>
-                  <tr className="hover:bg-muted/20">
-                    <td className="py-3 px-4 font-semibold text-foreground">Phê duyệt nhiệm vụ Chuyên môn</td>
-                    <td className="py-3 px-3 text-center text-[#10B981] font-bold">✔</td>
-                    <td className="py-3 px-3 text-center text-[#10B981] font-bold">✔</td>
-                    <td className="py-3 px-3 text-center text-muted-foreground/40">-</td>
-                    <td className="py-3 px-3 text-center text-muted-foreground/40">-</td>
-                  </tr>
-                  <tr className="hover:bg-muted/20">
-                    <td className="py-3 px-4 font-semibold text-foreground">Phê duyệt nhiệm vụ Hành chính</td>
-                    <td className="py-3 px-3 text-center text-[#10B981] font-bold">✔</td>
-                    <td className="py-3 px-3 text-center text-[#10B981] font-bold">✔</td>
-                    <td className="py-3 px-3 text-center text-[#10B981] font-bold">✔</td>
-                    <td className="py-3 px-3 text-center text-muted-foreground/40">-</td>
-                  </tr>
-                  <tr className="hover:bg-muted/20">
-                    <td className="py-3 px-4 font-semibold text-foreground">Phát lệnh Đôn đốc công việc khẩn</td>
-                    <td className="py-3 px-3 text-center text-[#10B981] font-bold">✔</td>
-                    <td className="py-3 px-3 text-center text-[#10B981] font-bold">✔</td>
-                    <td className="py-3 px-3 text-center text-[#10B981] font-bold">✔</td>
-                    <td className="py-3 px-3 text-center text-muted-foreground/40">-</td>
-                  </tr>
-                  <tr className="hover:bg-muted/20">
-                    <td className="py-3 px-4 font-semibold text-foreground">Quản trị Thành viên & Hệ thống</td>
-                    <td className="py-3 px-3 text-center text-[#10B981] font-bold">✔</td>
-                    <td className="py-3 px-3 text-center text-muted-foreground/40">-</td>
-                    <td className="py-3 px-3 text-center text-muted-foreground/40">-</td>
-                    <td className="py-3 px-3 text-center text-muted-foreground/40">-</td>
-                  </tr>
-                </tbody>
-              </table>
+            <div className="flex items-center bg-muted/60 p-1 rounded-2xl border border-border/80 self-start sm:self-auto shrink-0">
+              <button
+                type="button"
+                onClick={() => setRolesSubTab('roles_matrix')}
+                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all ${
+                  rolesSubTab === 'roles_matrix'
+                    ? 'bg-card text-foreground shadow-xs border border-border/60'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <Shield className="w-3.5 h-3.5" />
+                <span>Ma trận 4 Chức vụ</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setRolesSubTab('member_override');
+                  if (!selectedMemberForPerms && members.length > 0) {
+                    setSelectedMemberForPerms(members[0].id);
+                  }
+                }}
+                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all ${
+                  rolesSubTab === 'member_override'
+                    ? 'bg-card text-foreground shadow-xs border border-border/60'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <Sliders className="w-3.5 h-3.5" />
+                <span>Tùy biến Từng Thành viên</span>
+              </button>
             </div>
           </div>
+
+          {/* --------------------------------------------------------------------- */}
+          {/* CHẾ ĐỘ 1: MA TRẬN PHÂN QUYỀN 4 VAI TRÒ */}
+          {/* --------------------------------------------------------------------- */}
+          {rolesSubTab === 'roles_matrix' && (
+            <div className="bg-card rounded-3xl p-6 border border-border shadow-xs space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-border">
+                <div>
+                  <h4 className="text-sm font-bold text-foreground">
+                    Ma trận Thẩm quyền 4 Vai trò Ban Thường vụ
+                  </h4>
+                  <p className="text-xs text-muted-foreground">
+                    Bấm trực tiếp vào các ô để bật/tắt quyền hạn theo chức vụ. Thay đổi được tự động lưu vĩnh viễn.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (confirm('Đồng chí có chắc muốn khôi phục lại toàn bộ Ma trận phân quyền mặc định theo Quy chế Đoàn 2026 không?')) {
+                      resetRolePermissionsToDefault();
+                      showToast('Đã khôi phục ma trận phân quyền về mặc định!');
+                    }
+                  }}
+                  className="px-3 py-1.5 rounded-xl border border-border hover:bg-muted text-muted-foreground hover:text-foreground text-xs font-bold flex items-center gap-1.5 transition-colors self-start sm:self-auto"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Khôi phục mặc định</span>
+                </button>
+              </div>
+
+              {/* 4 Card tóm tắt vai trò */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
+                <div className="p-4 rounded-2xl bg-[#FEF2F2] border border-[#FECACA] space-y-2">
+                  <div className="font-bold text-[#DC2626] flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-[#DC2626]" />
+                      <span>Bí thư Đoàn trường</span>
+                    </div>
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-100 text-red-700">10/10 quyền</span>
+                  </div>
+                  <ul className="text-[11px] text-muted-foreground space-y-1 list-disc list-inside">
+                    <li>Toàn quyền chỉ đạo và điều hành</li>
+                    <li>Duyệt việc chuyên môn & chủ trương</li>
+                    <li>Duyệt việc hành chính & văn bản</li>
+                    <li>Đôn đốc công việc toàn hệ thống</li>
+                  </ul>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-[#EBF2FF] border border-[#BFDBFE] space-y-2">
+                  <div className="font-bold text-[#0B5CFF] flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-[#0B5CFF]" />
+                      <span>Phó Bí thư Đoàn trường</span>
+                    </div>
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">
+                      {(rolePermissions.pho_bi_thu || []).length}/10 quyền
+                    </span>
+                  </div>
+                  <ul className="text-[11px] text-muted-foreground space-y-1 list-disc list-inside">
+                    <li>Chỉ đạo mảng công tác được giao</li>
+                    <li>Duyệt việc chuyên môn & hành chính</li>
+                    <li>Giao việc và phân bổ nhiệm vụ</li>
+                    <li>Đôn đốc công việc thuộc mảng</li>
+                  </ul>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-[#FFFBEB] border border-[#FDE68A] space-y-2">
+                  <div className="font-bold text-[#D97706] flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-[#D97706]" />
+                      <span>Chánh Văn phòng</span>
+                    </div>
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">
+                      {(rolePermissions.chanh_van_phong || []).length}/10 quyền
+                    </span>
+                  </div>
+                  <ul className="text-[11px] text-muted-foreground space-y-1 list-disc list-inside">
+                    <li>Quản trị Sổ văn bản đến 8 cột</li>
+                    <li>Duyệt việc hành chính & hậu cần</li>
+                    <li>Điều phối tiến độ và gửi đôn đốc</li>
+                    <li>Hạn chế duyệt chủ trương cấp cao</li>
+                  </ul>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-muted/40 border border-border space-y-2">
+                  <div className="font-bold text-foreground flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-slate-400" />
+                      <span>Ủy viên BTV</span>
+                    </div>
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
+                      {(rolePermissions.uy_vien || []).length}/10 quyền
+                    </span>
+                  </div>
+                  <ul className="text-[11px] text-muted-foreground space-y-1 list-disc list-inside">
+                    <li>Nhận việc và cập nhật tiến độ</li>
+                    <li>Nộp duyệt hoàn thành nhiệm vụ</li>
+                    <li>Tham gia kênh Chat BTV & Thảo luận</li>
+                    <li>Tự tạo việc cá nhân để quản lý</li>
+                  </ul>
+                </div>
+              </div>
+
+              {/* Bảng Ma trận Quyền hạn Tương tác Thông minh */}
+              <div className="overflow-x-auto pt-2">
+                <table className="w-full text-left text-xs border border-border rounded-2xl overflow-hidden">
+                  <thead>
+                    <tr className="bg-muted/70 border-b border-border text-[11px] font-bold text-muted-foreground uppercase">
+                      <th className="py-3 px-4 min-w-[280px]">Quyền hạn / Chức năng Hệ thống</th>
+                      <th className="py-3 px-3 text-center min-w-[120px]">
+                        <span className="text-red-600 font-bold">Bí thư</span>
+                        <div className="text-[9px] text-muted-foreground normal-case font-normal">(Cố định toàn quyền)</div>
+                      </th>
+                      <th className="py-3 px-3 text-center min-w-[120px]">
+                        <span className="text-blue-600 font-bold">Phó Bí thư</span>
+                        <div className="text-[9px] text-muted-foreground normal-case font-normal">(Bấm để đổi)</div>
+                      </th>
+                      <th className="py-3 px-3 text-center min-w-[120px]">
+                        <span className="text-amber-600 font-bold">Chánh VP</span>
+                        <div className="text-[9px] text-muted-foreground normal-case font-normal">(Bấm để đổi)</div>
+                      </th>
+                      <th className="py-3 px-3 text-center min-w-[120px]">
+                        <span className="text-foreground font-bold">Ủy viên BTV</span>
+                        <div className="text-[9px] text-muted-foreground normal-case font-normal">(Bấm để đổi)</div>
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {SYSTEM_PERMISSIONS.map((perm) => {
+                      const isPbtHas = (rolePermissions.pho_bi_thu || []).includes(perm.key);
+                      const isCvpHas = (rolePermissions.chanh_van_phong || []).includes(perm.key);
+                      const isUvHas = (rolePermissions.uy_vien || []).includes(perm.key);
+
+                      const categoryBadge =
+                        perm.category === 'cong_viec'
+                          ? { label: 'Công việc', bg: 'bg-blue-500/10 text-blue-600 border-blue-500/20' }
+                          : perm.category === 'van_ban'
+                          ? { label: 'Văn bản', bg: 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20' }
+                          : perm.category === 'dieu_hanh'
+                          ? { label: 'Điều hành', bg: 'bg-purple-500/10 text-purple-600 border-purple-500/20' }
+                          : { label: 'Hệ thống', bg: 'bg-rose-500/10 text-rose-600 border-rose-500/20' };
+
+                      return (
+                        <tr key={perm.key} className="hover:bg-muted/20 transition-colors">
+                          <td className="py-3.5 px-4">
+                            <div className="space-y-0.5">
+                              <div className="flex items-center gap-2">
+                                <span className="font-bold text-foreground text-xs">{perm.label}</span>
+                                <span className={`px-1.5 py-0.2 rounded-full text-[9px] font-bold border ${categoryBadge.bg}`}>
+                                  {categoryBadge.label}
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-muted-foreground">{perm.description}</p>
+                            </div>
+                          </td>
+
+                          {/* Bí thư: Luôn có toàn quyền (disabled) */}
+                          <td className="py-3.5 px-3 text-center bg-red-500/5">
+                            <span
+                              className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-emerald-500/15 text-emerald-600 cursor-not-allowed font-bold"
+                              title="Bí thư Đoàn trường luôn có toàn quyền tuyệt đối theo Quy chế"
+                            >
+                              ✔
+                            </span>
+                          </td>
+
+                          {/* Phó Bí thư */}
+                          <td className="py-3.5 px-3 text-center">
+                            <button
+                              type="button"
+                              onClick={() => handleToggleRolePermission('pho_bi_thu', perm.key)}
+                              className={`inline-flex items-center justify-center w-7 h-7 rounded-lg transition-all ${
+                                isPbtHas
+                                  ? 'bg-emerald-500 text-white shadow-2xs hover:bg-emerald-600 font-bold'
+                                  : 'bg-muted/80 text-muted-foreground/40 hover:bg-muted hover:text-foreground'
+                              }`}
+                              title={isPbtHas ? 'Bấm để thu hồi quyền này' : 'Bấm để cấp quyền này cho Phó Bí thư'}
+                            >
+                              {isPbtHas ? '✔' : '—'}
+                            </button>
+                          </td>
+
+                          {/* Chánh Văn phòng */}
+                          <td className="py-3.5 px-3 text-center">
+                            <button
+                              type="button"
+                              onClick={() => handleToggleRolePermission('chanh_van_phong', perm.key)}
+                              className={`inline-flex items-center justify-center w-7 h-7 rounded-lg transition-all ${
+                                isCvpHas
+                                  ? 'bg-emerald-500 text-white shadow-2xs hover:bg-emerald-600 font-bold'
+                                  : 'bg-muted/80 text-muted-foreground/40 hover:bg-muted hover:text-foreground'
+                              }`}
+                              title={isCvpHas ? 'Bấm để thu hồi quyền này' : 'Bấm để cấp quyền này cho Chánh văn phòng'}
+                            >
+                              {isCvpHas ? '✔' : '—'}
+                            </button>
+                          </td>
+
+                          {/* Ủy viên BTV */}
+                          <td className="py-3.5 px-3 text-center">
+                            <button
+                              type="button"
+                              onClick={() => handleToggleRolePermission('uy_vien', perm.key)}
+                              className={`inline-flex items-center justify-center w-7 h-7 rounded-lg transition-all ${
+                                isUvHas
+                                  ? 'bg-emerald-500 text-white shadow-2xs hover:bg-emerald-600 font-bold'
+                                  : 'bg-muted/80 text-muted-foreground/40 hover:bg-muted hover:text-foreground'
+                              }`}
+                              title={isUvHas ? 'Bấm để thu hồi quyền này' : 'Bấm để cấp quyền này cho Ủy viên BTV'}
+                            >
+                              {isUvHas ? '✔' : '—'}
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* --------------------------------------------------------------------- */}
+          {/* CHẾ ĐỘ 2: TÙY BIẾN PHÂN QUYỀN RIÊNG TỪNG THÀNH VIÊN */}
+          {/* --------------------------------------------------------------------- */}
+          {rolesSubTab === 'member_override' && (
+            <div className="space-y-5">
+              {/* Thanh chọn Thành viên */}
+              <div className="bg-card rounded-3xl p-5 border border-border shadow-xs space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <h4 className="text-sm font-bold text-foreground">
+                      Chọn Đồng chí trong Ban Thường vụ để Thiết lập Quyền riêng
+                    </h4>
+                    <p className="text-xs text-muted-foreground">
+                      Tùy biến quyền vượt cấp hoặc giới hạn thẩm quyền cho từng cá nhân độc lập với chức vụ
+                    </p>
+                  </div>
+
+                  <select
+                    value={selectedMemberForPerms}
+                    onChange={(e) => setSelectedMemberForPerms(e.target.value)}
+                    className="px-3.5 py-2 rounded-xl bg-muted/60 border border-border text-xs font-bold text-foreground outline-none focus:border-primary"
+                  >
+                    {members.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.full_name} ({m.role === 'bi_thu' ? 'Bí thư' : m.role === 'pho_bi_thu' ? 'Phó Bí thư' : m.role === 'chanh_van_phong' ? 'Chánh VP' : 'Ủy viên BTV'})
+                        {m.custom_permissions && m.custom_permissions.length > 0 ? ' [Có quyền riêng]' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Danh sách Avatar nhanh */}
+                <div className="flex items-center gap-2 overflow-x-auto pt-2 pb-1 scrollbar-none">
+                  {members.map((m) => {
+                    const isSelected = m.id === selectedMemberForPerms;
+                    return (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => setSelectedMemberForPerms(m.id)}
+                        className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium transition-all shrink-0 ${
+                          isSelected
+                            ? 'bg-primary text-primary-foreground font-bold shadow-xs'
+                            : 'bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground border border-border/60'
+                        }`}
+                      >
+                        <AvatarWithFallback
+                          src={m.avatar_url}
+                          name={m.full_name}
+                          className="w-5 h-5 rounded-full ring-1 ring-border shrink-0"
+                        />
+                        <span>{m.full_name.split(' ').slice(-2).join(' ')}</span>
+                        {m.custom_permissions && m.custom_permissions.length > 0 && (
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Thông tin & Danh sách quyền của Thành viên được chọn */}
+              {(() => {
+                const targetMember = members.find((m) => m.id === selectedMemberForPerms) || members[0];
+                if (!targetMember) return null;
+
+                const hasCustom = Boolean(
+                  targetMember.custom_permissions && targetMember.custom_permissions.length > 0
+                );
+                const effectivePerms = targetMember.role === 'bi_thu'
+                  ? SYSTEM_PERMISSIONS.map((p) => p.key)
+                  : hasCustom
+                  ? targetMember.custom_permissions!
+                  : (rolePermissions[targetMember.role] || DEFAULT_ROLE_PERMISSIONS[targetMember.role] || []);
+
+                return (
+                  <div className="bg-card rounded-3xl p-6 border border-border shadow-xs space-y-6">
+                    {/* Header thông tin đồng chí */}
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-4 rounded-2xl bg-muted/30 border border-border">
+                      <div className="flex items-center gap-3">
+                        <div
+                          className="relative group cursor-pointer shrink-0"
+                          onClick={() => openAvatarModal(targetMember)}
+                          title="Bấm để đổi ảnh đại diện cho đồng chí này"
+                        >
+                          <AvatarWithFallback
+                            src={targetMember.avatar_url}
+                            name={targetMember.full_name}
+                            className="w-12 h-12 rounded-full ring-2 ring-border shrink-0 group-hover:ring-primary transition-all"
+                          />
+                          <div className="absolute inset-0 bg-black/40 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                            <Camera className="w-4 h-4 text-white" />
+                          </div>
+                        </div>
+
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h3 className="text-base font-bold text-foreground">{targetMember.full_name}</h3>
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                targetMember.role === 'bi_thu'
+                                  ? 'bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA]'
+                                  : targetMember.role === 'pho_bi_thu'
+                                  ? 'bg-[#EBF2FF] text-[#0B5CFF] border border-[#BFDBFE]'
+                                  : targetMember.role === 'chanh_van_phong'
+                                  ? 'bg-[#FFFBEB] text-[#D97706] border border-[#FDE68A]'
+                                  : 'bg-[#F1F5F9] text-[#475569] border border-[#CBD5E1]'
+                              }`}
+                            >
+                              {targetMember.role === 'bi_thu'
+                                ? 'Bí thư Đoàn trường'
+                                : targetMember.role === 'pho_bi_thu'
+                                ? 'Phó Bí thư'
+                                : targetMember.role === 'chanh_van_phong'
+                                ? 'Chánh văn phòng'
+                                : 'Ủy viên BTV'}
+                            </span>
+                            {hasCustom ? (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                                Đang áp dụng Quyền riêng ({effectivePerms.length}/10 quyền)
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
+                                Đang thừa hưởng theo Chức danh ({effectivePerms.length}/10 quyền)
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-xs text-muted-foreground font-mono mt-0.5">
+                            {targetMember.email} • {targetMember.phone || 'Chưa cập nhật SĐT'}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Các nút thao tác nhanh */}
+                      <div className="flex items-center gap-2 self-start md:self-auto flex-wrap">
+                        <button
+                          type="button"
+                          onClick={() => openAvatarModal(targetMember)}
+                          className="px-3 py-1.5 rounded-xl border border-border hover:bg-muted text-xs font-bold text-foreground flex items-center gap-1.5 transition-colors"
+                        >
+                          <Camera className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>Đổi Avatar</span>
+                        </button>
+
+                        {targetMember.role !== 'bi_thu' && (
+                          <>
+                            {hasCustom && (
+                              <button
+                                type="button"
+                                onClick={() => handleResetMemberCustomPerms(targetMember.id)}
+                                className="px-3 py-1.5 rounded-xl border border-amber-500/30 hover:bg-amber-500/10 text-amber-600 dark:text-amber-400 text-xs font-bold flex items-center gap-1.5 transition-colors"
+                                title="Xóa toàn bộ tùy biến, quay lại quyền mặc định theo vai trò"
+                              >
+                                <RotateCcw className="w-3.5 h-3.5" />
+                                <span>Khôi phục theo chức vụ</span>
+                              </button>
+                            )}
+
+                            <button
+                              type="button"
+                              onClick={() => handleGrantAllPermsToMember(targetMember.id)}
+                              className="px-3 py-1.5 rounded-xl bg-primary text-primary-foreground text-xs font-bold flex items-center gap-1.5 shadow-2xs hover:bg-primary/90 transition-colors"
+                            >
+                              <ShieldCheck className="w-3.5 h-3.5" />
+                              <span>Cấp Toàn quyền (10/10)</span>
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Danh sách 10 Quyền hạn và Switch Bật / Tắt */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {SYSTEM_PERMISSIONS.map((perm) => {
+                        const isGranted = effectivePerms.includes(perm.key);
+                        const isLockedBiThu = targetMember.role === 'bi_thu';
+
+                        return (
+                          <div
+                            key={perm.key}
+                            onClick={() => {
+                              if (!isLockedBiThu) {
+                                handleToggleMemberPermission(targetMember.id, perm.key);
+                              }
+                            }}
+                            className={`p-4 rounded-2xl border transition-all flex items-start justify-between gap-3 ${
+                              isLockedBiThu
+                                ? 'bg-muted/20 border-border cursor-not-allowed opacity-90'
+                                : isGranted
+                                ? 'bg-primary/5 border-primary/40 hover:border-primary cursor-pointer shadow-2xs'
+                                : 'bg-card border-border hover:border-muted-foreground/30 cursor-pointer'
+                            }`}
+                          >
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-2">
+                                <span className="font-bold text-foreground text-xs">{perm.label}</span>
+                                {isGranted ? (
+                                  <span className="px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
+                                    Đang kích hoạt
+                                  </span>
+                                ) : (
+                                  <span className="px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-muted text-muted-foreground border border-border">
+                                    Không được phép
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-[11px] text-muted-foreground leading-relaxed">
+                                {perm.description}
+                              </p>
+                            </div>
+
+                            {/* Nút Toggle Switch */}
+                            <button
+                              type="button"
+                              disabled={isLockedBiThu}
+                              className={`w-11 h-6 rounded-full p-1 transition-colors shrink-0 flex items-center ${
+                                isGranted ? 'bg-emerald-600 justify-end' : 'bg-muted-foreground/30 justify-start'
+                              } ${isLockedBiThu ? 'cursor-not-allowed opacity-60' : ''}`}
+                            >
+                              <div className="w-4 h-4 rounded-full bg-white shadow-md" />
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
         </div>
       )}
 

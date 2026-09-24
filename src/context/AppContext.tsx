@@ -20,6 +20,8 @@ import {
   RatingGrade,
   WeeklyCheckin,
   ChatRichCard,
+  PermissionKey,
+  RolePermissionsMap,
 } from '@/types';
 import {
   INITIAL_MEMBERS,
@@ -29,6 +31,7 @@ import {
   INITIAL_CHAT_MESSAGES,
   INITIAL_NOTIFICATIONS,
   INITIAL_WEEKLY_CHECKINS,
+  DEFAULT_ROLE_PERMISSIONS,
 } from '@/lib/mockData';
 import { checkCanManualRemind } from '@/lib/notifications';
 import { sendMobileNotification } from '@/lib/pushNotifications';
@@ -82,6 +85,21 @@ interface AppContextType {
   addMember: (memberData: Partial<Member>) => Member;
   updateMember: (memberId: string, updates: Partial<Member>) => void;
   deleteMember: (memberId: string) => void;
+  updateMemberAvatar: (memberId: string, newAvatarUrl: string) => void;
+
+  // Quản lý Phân quyền (RBAC)
+  rolePermissions: RolePermissionsMap;
+  updateRolePermissions: (role: MemberRole, permissions: PermissionKey[]) => void;
+  updateMemberCustomPermissions: (memberId: string, permissions?: PermissionKey[]) => void;
+  resetRolePermissionsToDefault: () => void;
+  hasPermission: (permKey: PermissionKey, member?: Member) => boolean;
+
+  // Modal Thay đổi Avatar
+  isAvatarModalOpen: boolean;
+  setIsAvatarModalOpen: (open: boolean) => void;
+  avatarModalTargetMember: Member | null;
+  openAvatarModal: (member?: Member) => void;
+  closeAvatarModal: () => void;
 
   // CRUD Mục lục / Mảng việc / Dự án
   addCampaign: (campData: Partial<Campaign>) => Campaign;
@@ -246,6 +264,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [weeklyCheckins, setWeeklyCheckins] = useState<WeeklyCheckin[]>(INITIAL_WEEKLY_CHECKINS);
   const [isWeeklyCheckinModalOpen, setIsWeeklyCheckinModalOpen] = useState<boolean>(false);
 
+  // Quản lý Phân quyền (Role-Based Access Control - RBAC)
+  const [rolePermissions, setRolePermissions] = useState<RolePermissionsMap>(DEFAULT_ROLE_PERMISSIONS);
+
+  // Modal Thay đổi Avatar
+  const [isAvatarModalOpen, setIsAvatarModalOpen] = useState<boolean>(false);
+  const [avatarModalTargetMember, setAvatarModalTargetMember] = useState<Member | null>(null);
+
   // Trình xem PDF Scan Công văn (PdfViewerModal)
   const [selectedPdfUrl, setSelectedPdfUrl] = useState<string | null>(null);
   const [selectedPdfTitle, setSelectedPdfTitle] = useState<string | null>(null);
@@ -279,19 +304,77 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         fetchCampaignsFromSupabase(),
       ]);
 
-      if (dbTasks && dbTasks.length > 0) setTasks(dbTasks);
+      // Thu thập dữ liệu local storage hiện tại để ưu tiên giữ nguyên các cập nhật của người dùng
+      let localTasks: Task[] = [];
+      let localMembers: Member[] = [];
+      let localDocs: IncomingDocument[] = [];
+      let localCampaigns: Campaign[] = [];
+
+      if (typeof window !== 'undefined') {
+        try {
+          const t = localStorage.getItem('btv_tasks');
+          if (t) localTasks = JSON.parse(t);
+          const m = localStorage.getItem('btv_members');
+          if (m) localMembers = JSON.parse(m);
+          const d = localStorage.getItem('btv_docs');
+          if (d) localDocs = JSON.parse(d);
+          const c = localStorage.getItem('btv_campaigns');
+          if (c) localCampaigns = JSON.parse(c);
+        } catch (e) {}
+      }
+
+      if (dbTasks && dbTasks.length > 0) {
+        if (localTasks.length > 0) {
+          const taskMap = new Map<string, Task>();
+          dbTasks.forEach((t) => taskMap.set(t.id, t));
+          localTasks.forEach((t) => taskMap.set(t.id, { ...taskMap.get(t.id), ...t }));
+          setTasks(Array.from(taskMap.values()));
+        } else {
+          setTasks(dbTasks);
+        }
+      }
       if (dbChat && dbChat.length > 0) setChatMessages(dbChat);
-      if (dbDocs && dbDocs.length > 0) setIncomingDocs(dbDocs);
+      if (dbDocs && dbDocs.length > 0) {
+        if (localDocs.length > 0) {
+          const docMap = new Map<string, IncomingDocument>();
+          dbDocs.forEach((d) => docMap.set(d.id, d));
+          localDocs.forEach((d) => docMap.set(d.id, { ...docMap.get(d.id), ...d }));
+          setIncomingDocs(Array.from(docMap.values()));
+        } else {
+          setIncomingDocs(dbDocs);
+        }
+      }
       if (dbComments && dbComments.length > 0) setComments(dbComments);
       if (dbLogs && dbLogs.length > 0) setActivityLogs(dbLogs);
       if (dbMembers && dbMembers.length > 0) {
-        // Đảm bảo đủ 9 thành viên BTV không bị thiếu sót
+        // Hợp nhất đảm bảo bảo vệ avatar, tên, số điện thoại, custom_permissions mà admin đã sửa
         const memberMap = new Map<string, Member>();
         INITIAL_MEMBERS.forEach((m) => memberMap.set(m.id, m));
         dbMembers.forEach((m) => memberMap.set(m.id, { ...memberMap.get(m.id), ...m }));
-        setMembers(Array.from(memberMap.values()));
+        localMembers.forEach((m) => {
+          const existing = memberMap.get(m.id);
+          if (existing) {
+            memberMap.set(m.id, { ...existing, ...m });
+          } else {
+            memberMap.set(m.id, m);
+          }
+        });
+        const mergedMembers = Array.from(memberMap.values());
+        setMembers(mergedMembers);
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('btv_members', JSON.stringify(mergedMembers));
+        }
       }
-      if (dbCampaigns && dbCampaigns.length > 0) setCampaigns(dbCampaigns);
+      if (dbCampaigns && dbCampaigns.length > 0) {
+        if (localCampaigns.length > 0) {
+          const cMap = new Map<string, Campaign>();
+          dbCampaigns.forEach((c) => cMap.set(c.id, c));
+          localCampaigns.forEach((c) => cMap.set(c.id, { ...cMap.get(c.id), ...c }));
+          setCampaigns(Array.from(cMap.values()));
+        } else {
+          setCampaigns(dbCampaigns);
+        }
+      }
 
       setIsSupabaseConnected(true);
     } catch (e) {
@@ -300,7 +383,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   // ----------------------------------------------------------------------------
-  // 2. KHỞI TẠO SESSION GOOGLE AUTH & REALTIME WEBSOCKET
+  // 2. KHỞI TẠO SESSION GOOGLE AUTH, LOCAL STORAGE & REALTIME WEBSOCKET
   // ----------------------------------------------------------------------------
   useEffect(() => {
     setIsMounted(true);
@@ -309,39 +392,106 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (sessionActive === 'true') {
         setIsAuthenticated(true);
       }
-      const savedTasks = localStorage.getItem('btv_tasks');
-      if (savedTasks) {
-        try {
-          const parsed = JSON.parse(savedTasks);
-          // Chỉ lấy nếu dữ liệu năm 2026, tránh cache 2025 cũ bị đọng
-          if (Array.isArray(parsed) && parsed.some(t => t.due_at?.includes('2026'))) {
-            setTasks(parsed);
-          }
-        } catch (e) {}
-      }
-      const savedDocs = localStorage.getItem('btv_docs');
-      if (savedDocs) {
-        try { setIncomingDocs(JSON.parse(savedDocs)); } catch (e) {}
-      }
       const savedMemberId = localStorage.getItem('btv_current_member_id');
       if (savedMemberId) {
         setCurrentMemberId(savedMemberId);
       }
-      const savedCheckins = localStorage.getItem('btv_weekly_checkins');
-      if (savedCheckins) {
-        try {
-          const parsed = JSON.parse(savedCheckins);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            setWeeklyCheckins(parsed);
-          }
-        } catch (e) {}
-      }
+
+      // Khôi phục Danh sách Thành viên
       const savedMembers = localStorage.getItem('btv_members');
       if (savedMembers) {
         try {
           const parsed = JSON.parse(savedMembers);
           if (Array.isArray(parsed) && parsed.length > 0) {
             setMembers(parsed);
+          }
+        } catch (e) {}
+      }
+
+      // Khôi phục Công việc
+      const savedTasks = localStorage.getItem('btv_tasks');
+      if (savedTasks) {
+        try {
+          const parsed = JSON.parse(savedTasks);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setTasks(parsed);
+          }
+        } catch (e) {}
+      }
+
+      // Khôi phục Văn bản đến
+      const savedDocs = localStorage.getItem('btv_docs');
+      if (savedDocs) {
+        try {
+          const parsed = JSON.parse(savedDocs);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setIncomingDocs(parsed);
+          }
+        } catch (e) {}
+      }
+
+      // Khôi phục Mảng việc / Chiến dịch
+      const savedCampaigns = localStorage.getItem('btv_campaigns');
+      if (savedCampaigns) {
+        try {
+          const parsed = JSON.parse(savedCampaigns);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setCampaigns(parsed);
+          }
+        } catch (e) {}
+      }
+
+      // Khôi phục Tin nhắn Chat
+      const savedChat = localStorage.getItem('btv_chat_messages');
+      if (savedChat) {
+        try {
+          const parsed = JSON.parse(savedChat);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setChatMessages(parsed);
+          }
+        } catch (e) {}
+      }
+
+      // Khôi phục Bình luận
+      const savedComments = localStorage.getItem('btv_comments');
+      if (savedComments) {
+        try {
+          const parsed = JSON.parse(savedComments);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setComments(parsed);
+          }
+        } catch (e) {}
+      }
+
+      // Khôi phục Nhật ký hoạt động
+      const savedLogs = localStorage.getItem('btv_activity_logs');
+      if (savedLogs) {
+        try {
+          const parsed = JSON.parse(savedLogs);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setActivityLogs(parsed);
+          }
+        } catch (e) {}
+      }
+
+      // Khôi phục Ma trận Phân quyền
+      const savedPermissions = localStorage.getItem('btv_role_permissions');
+      if (savedPermissions) {
+        try {
+          const parsed = JSON.parse(savedPermissions);
+          if (parsed && typeof parsed === 'object') {
+            setRolePermissions(parsed);
+          }
+        } catch (e) {}
+      }
+
+      // Khôi phục Check-in Tuần
+      const savedCheckins = localStorage.getItem('btv_weekly_checkins');
+      if (savedCheckins) {
+        try {
+          const parsed = JSON.parse(savedCheckins);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setWeeklyCheckins(parsed);
           }
         } catch (e) {}
       }
@@ -452,17 +602,60 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [refreshDataFromSupabase]);
 
+  // Tự động sao lưu dữ liệu toàn bộ hệ thống vào LocalStorage (Bảo đảm lưu vĩnh viễn)
   useEffect(() => {
-    if (typeof window !== 'undefined') {
+    if (isMounted && typeof window !== 'undefined') {
       localStorage.setItem('btv_tasks', JSON.stringify(tasks));
     }
-  }, [tasks]);
+  }, [tasks, isMounted]);
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
+    if (isMounted && typeof window !== 'undefined') {
       localStorage.setItem('btv_docs', JSON.stringify(incomingDocs));
     }
-  }, [incomingDocs]);
+  }, [incomingDocs, isMounted]);
+
+  useEffect(() => {
+    if (isMounted && typeof window !== 'undefined') {
+      localStorage.setItem('btv_members', JSON.stringify(members));
+    }
+  }, [members, isMounted]);
+
+  useEffect(() => {
+    if (isMounted && typeof window !== 'undefined') {
+      localStorage.setItem('btv_campaigns', JSON.stringify(campaigns));
+    }
+  }, [campaigns, isMounted]);
+
+  useEffect(() => {
+    if (isMounted && typeof window !== 'undefined') {
+      localStorage.setItem('btv_chat_messages', JSON.stringify(chatMessages));
+    }
+  }, [chatMessages, isMounted]);
+
+  useEffect(() => {
+    if (isMounted && typeof window !== 'undefined') {
+      localStorage.setItem('btv_comments', JSON.stringify(comments));
+    }
+  }, [comments, isMounted]);
+
+  useEffect(() => {
+    if (isMounted && typeof window !== 'undefined') {
+      localStorage.setItem('btv_activity_logs', JSON.stringify(activityLogs));
+    }
+  }, [activityLogs, isMounted]);
+
+  useEffect(() => {
+    if (isMounted && typeof window !== 'undefined') {
+      localStorage.setItem('btv_role_permissions', JSON.stringify(rolePermissions));
+    }
+  }, [rolePermissions, isMounted]);
+
+  useEffect(() => {
+    if (isMounted && typeof window !== 'undefined') {
+      localStorage.setItem('btv_weekly_checkins', JSON.stringify(weeklyCheckins));
+    }
+  }, [weeklyCheckins, isMounted]);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -495,17 +688,119 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setAuthUser(null);
   };
 
+  // PHÂN LUỒNG ĐĂNG NHẬP THÔNG MINH THEO VAI TRÒ & THẨM QUYỀN
   const loginAsMember = (memberId: string) => {
+    const member = members.find((m) => m.id === memberId);
     setCurrentMemberId(memberId);
     setIsAuthenticated(true);
     if (typeof window !== 'undefined') {
       localStorage.setItem('btv_session_active', 'true');
       localStorage.setItem('btv_current_member_id', memberId);
     }
+
+    // Phân luồng trang đích phù hợp:
+    if (member) {
+      if (member.role === 'bi_thu' || member.role === 'pho_bi_thu') {
+        setActiveTab('trang_chu');
+      } else if (member.role === 'chanh_van_phong') {
+        setActiveTab('van_ban_den');
+      } else {
+        // Ủy viên BTV: điều hướng đến Việc của tôi để xử lý ngay công việc được phân công
+        setActiveTab('viec_cua_toi');
+      }
+    }
   };
 
   const logout = async () => {
     await signOut();
+  };
+
+  // ----------------------------------------------------------------------------
+  // QUẢN LÝ PHÂN QUYỀN (ROLE-BASED ACCESS CONTROL - RBAC)
+  // ----------------------------------------------------------------------------
+  const updateRolePermissions = (role: MemberRole, permissions: PermissionKey[]) => {
+    setRolePermissions((prev) => {
+      const updated = {
+        ...prev,
+        [role]: permissions,
+      };
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('btv_role_permissions', JSON.stringify(updated));
+      }
+      return updated;
+    });
+  };
+
+  const updateMemberCustomPermissions = (memberId: string, permissions?: PermissionKey[]) => {
+    setMembers((prev) => {
+      const updated = prev.map((m) =>
+        m.id === memberId
+          ? {
+              ...m,
+              custom_permissions: permissions && permissions.length > 0 ? permissions : undefined,
+            }
+          : m
+      );
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('btv_members', JSON.stringify(updated));
+      }
+      return updated;
+    });
+  };
+
+  const resetRolePermissionsToDefault = () => {
+    setRolePermissions(DEFAULT_ROLE_PERMISSIONS);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('btv_role_permissions', JSON.stringify(DEFAULT_ROLE_PERMISSIONS));
+    }
+  };
+
+  const hasPermission = useCallback(
+    (permKey: PermissionKey, targetMember?: Member): boolean => {
+      const m = targetMember || currentMember;
+      if (!m) return false;
+      // Bí thư Đoàn trường luôn có toàn quyền tuyệt đối theo Quy chế
+      if (m.role === 'bi_thu') return true;
+
+      // Ưu tiên phân quyền tùy chỉnh riêng cho cá nhân nếu có (đã gán mảng quyền riêng)
+      if (m.custom_permissions && Array.isArray(m.custom_permissions) && m.custom_permissions.length > 0) {
+        return m.custom_permissions.includes(permKey);
+      }
+
+      // Kiểm tra ma trận quyền hạn theo vai trò
+      const perms = rolePermissions[m.role] || DEFAULT_ROLE_PERMISSIONS[m.role] || [];
+      return perms.includes(permKey);
+    },
+    [currentMember, rolePermissions]
+  );
+
+  // ----------------------------------------------------------------------------
+  // QUẢN LÝ THAY ĐỔI AVATAR (AVATAR MODAL & PERSISTENCE)
+  // ----------------------------------------------------------------------------
+  const openAvatarModal = (member?: Member) => {
+    setAvatarModalTargetMember(member || currentMember);
+    setIsAvatarModalOpen(true);
+  };
+
+  const closeAvatarModal = () => {
+    setIsAvatarModalOpen(false);
+    setAvatarModalTargetMember(null);
+  };
+
+  const updateMemberAvatar = (memberId: string, newAvatarUrl: string) => {
+    setMembers((prev) => {
+      const updated = prev.map((m) =>
+        m.id === memberId ? { ...m, avatar_url: newAvatarUrl } : m
+      );
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('btv_members', JSON.stringify(updated));
+      }
+      return updated;
+    });
+
+    if (supabase && isSupabaseConfigured) {
+      supabase.from('members').update({ avatar_url: newAvatarUrl }).eq('id', memberId).then(() => {});
+    }
   };
 
   // Check-in Tuần (Nhiệt kế Tinh thần)
@@ -583,7 +878,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       created_at: new Date().toISOString(),
     };
 
-    setMembers((prev) => [...prev, newMember]);
+    setMembers((prev) => {
+      const updated = [...prev, newMember];
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('btv_members', JSON.stringify(updated));
+      }
+      return updated;
+    });
     if (supabase && isSupabaseConfigured) {
       supabase.from('members').insert(newMember).then(() => {});
     }
@@ -591,16 +892,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
 
   const updateMember = (memberId: string, updates: Partial<Member>) => {
-    setMembers((prev) =>
-      prev.map((m) => (m.id === memberId ? { ...m, ...updates } : m))
-    );
+    setMembers((prev) => {
+      const updated = prev.map((m) => (m.id === memberId ? { ...m, ...updates } : m));
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('btv_members', JSON.stringify(updated));
+      }
+      return updated;
+    });
     if (supabase && isSupabaseConfigured) {
       supabase.from('members').update(updates).eq('id', memberId).then(() => {});
     }
   };
 
   const deleteMember = (memberId: string) => {
-    setMembers((prev) => prev.filter((m) => m.id !== memberId));
+    setMembers((prev) => {
+      const updated = prev.filter((m) => m.id !== memberId);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('btv_members', JSON.stringify(updated));
+      }
+      return updated;
+    });
     if (supabase && isSupabaseConfigured) {
       supabase.from('members').delete().eq('id', memberId).then(() => {});
     }
@@ -622,7 +933,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       created_at: new Date().toISOString(),
     };
 
-    setCampaigns((prev) => [newCamp, ...prev]);
+    setCampaigns((prev) => {
+      const updated = [newCamp, ...prev];
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('btv_campaigns', JSON.stringify(updated));
+      }
+      return updated;
+    });
     if (supabase && isSupabaseConfigured) {
       supabase.from('campaigns').insert(newCamp).then(() => {});
     }
@@ -630,16 +947,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
 
   const updateCampaign = (campId: string, updates: Partial<Campaign>) => {
-    setCampaigns((prev) =>
-      prev.map((c) => (c.id === campId ? { ...c, ...updates } : c))
-    );
+    setCampaigns((prev) => {
+      const updated = prev.map((c) => (c.id === campId ? { ...c, ...updates } : c));
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('btv_campaigns', JSON.stringify(updated));
+      }
+      return updated;
+    });
     if (supabase && isSupabaseConfigured) {
       supabase.from('campaigns').update(updates).eq('id', campId).then(() => {});
     }
   };
 
   const deleteCampaign = (campId: string) => {
-    setCampaigns((prev) => prev.filter((c) => c.id !== campId));
+    setCampaigns((prev) => {
+      const updated = prev.filter((c) => c.id !== campId);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('btv_campaigns', JSON.stringify(updated));
+      }
+      return updated;
+    });
     if (supabase && isSupabaseConfigured) {
       supabase.from('campaigns').delete().eq('id', campId).then(() => {});
     }
@@ -717,7 +1044,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       comments_count: 0,
     };
 
-    setTasks((prev) => [newTask, ...prev]);
+    setTasks((prev) => {
+      const updated = [newTask, ...prev];
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('btv_tasks', JSON.stringify(updated));
+      }
+      return updated;
+    });
 
     const log: ActivityLog = {
       id: generateUUID(),
@@ -728,7 +1061,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       created_at: new Date().toISOString(),
       member: currentMember,
     };
-    setActivityLogs((prev) => [log, ...prev]);
+    setActivityLogs((prev) => {
+      const updated = [log, ...prev];
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('btv_activity_logs', JSON.stringify(updated));
+      }
+      return updated;
+    });
 
     insertTaskToSupabase(newTask);
     insertActivityLogToSupabase(log);
@@ -745,8 +1084,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
 
   const updateTask = (taskId: string, updates: Partial<Task>) => {
-    setTasks((prev) =>
-      prev.map((task) => {
+    setTasks((prev) => {
+      const updated = prev.map((task) => {
         if (task.id === taskId) {
           return {
             ...task,
@@ -755,14 +1094,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           };
         }
         return task;
-      })
-    );
+      });
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('btv_tasks', JSON.stringify(updated));
+      }
+      return updated;
+    });
 
     updateTaskOnSupabase(taskId, updates);
   };
 
   const deleteTask = (taskId: string) => {
-    setTasks((prev) => prev.filter((t) => t.id !== taskId));
+    setTasks((prev) => {
+      const updated = prev.filter((t) => t.id !== taskId);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('btv_tasks', JSON.stringify(updated));
+      }
+      return updated;
+    });
     if (selectedTaskId === taskId) {
       setSelectedTaskId(null);
     }
@@ -1035,7 +1384,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       created_at: new Date().toISOString(),
     };
 
-    setIncomingDocs((prev) => [newDoc, ...prev]);
+    setIncomingDocs((prev) => {
+      const updated = [newDoc, ...prev];
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('btv_docs', JSON.stringify(updated));
+      }
+      return updated;
+    });
     insertIncomingDocToSupabase(newDoc);
     return newDoc;
   };
@@ -1080,7 +1435,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       ngay_chuyen_xu_ly: new Date().toISOString().split('T')[0],
       nguoi_nhan_xu_ly: ownerName,
     };
-    setIncomingDocs((prev) => prev.map((d) => (d.id === docId ? { ...d, ...docUpdates } : d)));
+    setIncomingDocs((prev) => {
+      const updated = prev.map((d) => (d.id === docId ? { ...d, ...docUpdates } : d));
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('btv_docs', JSON.stringify(updated));
+      }
+      return updated;
+    });
     updateIncomingDocOnSupabase(docId, docUpdates);
 
     return { success: true, task: newTask };
@@ -1126,9 +1487,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       nguoi_nhan_xu_ly: assigneeNames || doc.nguoi_nhan_xu_ly,
     };
 
-    setIncomingDocs((prev) =>
-      prev.map((d) => (d.id === docId ? { ...d, ...docUpdates } : d))
-    );
+    setIncomingDocs((prev) => {
+      const updated = prev.map((d) => (d.id === docId ? { ...d, ...docUpdates } : d));
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('btv_docs', JSON.stringify(updated));
+      }
+      return updated;
+    });
     updateIncomingDocOnSupabase(docId, docUpdates);
 
     return createdTasks;
@@ -1148,11 +1513,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       member: currentMember,
     };
 
-    setComments((prev) => [...prev, newComment]);
+    setComments((prev) => {
+      const updated = [...prev, newComment];
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('btv_comments', JSON.stringify(updated));
+      }
+      return updated;
+    });
 
-    setTasks((prev) =>
-      prev.map((t) => (t.id === taskId ? { ...t, comments_count: (t.comments_count || 0) + 1 } : t))
-    );
+    setTasks((prev) => {
+      const updated = prev.map((t) => (t.id === taskId ? { ...t, comments_count: (t.comments_count || 0) + 1 } : t));
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('btv_tasks', JSON.stringify(updated));
+      }
+      return updated;
+    });
 
     insertCommentToSupabase(newComment);
   };
@@ -1174,7 +1549,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       member: currentMember,
     };
 
-    setChatMessages((prev) => [...prev, newMsg]);
+    setChatMessages((prev) => {
+      const updated = [...prev, newMsg];
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('btv_chat_messages', JSON.stringify(updated));
+      }
+      return updated;
+    });
     insertChatMessageToSupabase(newMsg);
   };
 
@@ -1416,6 +1797,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         addMember,
         updateMember,
         deleteMember,
+        updateMemberAvatar,
+        rolePermissions,
+        updateRolePermissions,
+        updateMemberCustomPermissions,
+        resetRolePermissionsToDefault,
+        hasPermission,
+        isAvatarModalOpen,
+        setIsAvatarModalOpen,
+        avatarModalTargetMember,
+        openAvatarModal,
+        closeAvatarModal,
         addCampaign,
         updateCampaign,
         deleteCampaign,

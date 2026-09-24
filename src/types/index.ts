@@ -21,6 +21,27 @@ export type NotificationKind =
   | 'leo_thang'
   | 'don_doc';
 
+export type PermissionKey =
+  | 'view_all_tasks'            // Xem toàn bộ công việc BTV
+  | 'create_assign_tasks'       // Giao việc & Phân công nhiệm vụ
+  | 'approve_specialized_tasks' // Phê duyệt nhiệm vụ Chuyên môn
+  | 'approve_admin_tasks'       // Phê duyệt nhiệm vụ Hành chính
+  | 'manage_incoming_docs'      // Quản lý Sổ văn bản đến (Tiếp nhận & Chuyển giao)
+  | 'view_confidential_docs'    // Xem công văn & nhiệm vụ Mật - Thường trực
+  | 'send_urgent_remind'        // Phát lệnh Đôn đốc công việc khẩn
+  | 'view_reports_kpi'          // Xem Báo cáo Đánh giá & Xếp loại KPI BTV
+  | 'access_coordinator'        // Truy cập Bảng điều phối BTV
+  | 'access_admin_portal';      // Truy cập Khu vực Quản trị Hệ thống
+
+export type RolePermissionsMap = Record<MemberRole, PermissionKey[]>;
+
+export interface PermissionDefinition {
+  key: PermissionKey;
+  label: string;
+  description: string;
+  category: 'cong_viec' | 'van_ban' | 'dieu_hanh' | 'he_thong';
+}
+
 export interface Member {
   id: string;
   email: string;
@@ -36,6 +57,7 @@ export interface Member {
   busy_reason?: string | null;
   delegate_to_id?: string | null;
   delegate_to?: Member;
+  custom_permissions?: PermissionKey[];
   telegram_chat_id?: string;
   zalo_user_id?: string;
   created_at?: string;

@@ -2,7 +2,17 @@
 // DỮ LIỆU MẪU CHUẨN - 9 THÀNH VIÊN BAN THƯỜNG VỤ ĐOÀN TRƯỜNG HCMUTE (THÁNG 09/2026)
 // ==============================================================================
 
-import { Member, Campaign, IncomingDocument, Task, ChatMessage, WeeklyCheckin } from '@/types';
+import {
+  Member,
+  Campaign,
+  IncomingDocument,
+  Task,
+  ChatMessage,
+  WeeklyCheckin,
+  PermissionKey,
+  RolePermissionsMap,
+  PermissionDefinition,
+} from '@/types';
 
 export const INITIAL_MEMBERS: Member[] = [
   {
@@ -658,3 +668,107 @@ export const INITIAL_WEEKLY_CHECKINS: WeeklyCheckin[] = [
     created_at: '2026-09-23T09:15:00+07:00',
   },
 ];
+
+export const SYSTEM_PERMISSIONS: PermissionDefinition[] = [
+  {
+    key: 'view_all_tasks',
+    label: 'Xem toàn bộ công việc BTV',
+    description: 'Truy cập và theo dõi tiến độ tất cả nhiệm vụ trong toàn Ban Thường vụ.',
+    category: 'cong_viec',
+  },
+  {
+    key: 'create_assign_tasks',
+    label: 'Giao việc & Phân công nhiệm vụ',
+    description: 'Khởi tạo công việc mới và chỉ định thành viên BTV chịu trách nhiệm thực hiện.',
+    category: 'cong_viec',
+  },
+  {
+    key: 'approve_specialized_tasks',
+    label: 'Phê duyệt nhiệm vụ Chuyên môn',
+    description: 'Thẩm quyền chấm điểm KPI, xếp loại và duyệt hoàn thành công việc chuyên môn/chủ trương.',
+    category: 'cong_viec',
+  },
+  {
+    key: 'approve_admin_tasks',
+    label: 'Phê duyệt nhiệm vụ Hành chính',
+    description: 'Thẩm quyền duyệt các công việc hành chính, hậu cần, văn phòng và rà soát thủ tục.',
+    category: 'cong_viec',
+  },
+  {
+    key: 'manage_incoming_docs',
+    label: 'Quản lý Sổ văn bản đến',
+    description: 'Nhập thông tin văn bản đến, tải file PDF scan và phân phối xử lý cho BTV.',
+    category: 'van_ban',
+  },
+  {
+    key: 'view_confidential_docs',
+    label: 'Xem văn bản & việc Mật - Thường trực',
+    description: 'Quyền xem toàn văn các văn bản và công việc thuộc diện bảo mật Thường trực Đoàn trường.',
+    category: 'van_ban',
+  },
+  {
+    key: 'send_urgent_remind',
+    label: 'Phát lệnh Đôn đốc công việc khẩn',
+    description: 'Gửi thông báo hỏa tốc yêu cầu báo cáo tiến độ tức thì đến thành viên BTV.',
+    category: 'dieu_hanh',
+  },
+  {
+    key: 'view_reports_kpi',
+    label: 'Xem Báo cáo Đánh giá & Xếp loại KPI',
+    description: 'Xem bảng tổng kết KPI, xếp loại chất lượng A/B/C/D và xuất file Excel Đảng ủy.',
+    category: 'dieu_hanh',
+  },
+  {
+    key: 'access_coordinator',
+    label: 'Truy cập Bảng điều phối BTV',
+    description: 'Xem dashboard điều phối, ma trận tải việc, phân bổ nguồn lực và xung lực tuần.',
+    category: 'dieu_hanh',
+  },
+  {
+    key: 'access_admin_portal',
+    label: 'Quản trị Thành viên & Hệ thống',
+    description: 'Thêm/sửa/xóa thành viên, phân quyền hạn, quản lý mảng việc và bảo trì dữ liệu.',
+    category: 'he_thong',
+  },
+];
+
+export const DEFAULT_ROLE_PERMISSIONS: RolePermissionsMap = {
+  bi_thu: [
+    'view_all_tasks',
+    'create_assign_tasks',
+    'approve_specialized_tasks',
+    'approve_admin_tasks',
+    'manage_incoming_docs',
+    'view_confidential_docs',
+    'send_urgent_remind',
+    'view_reports_kpi',
+    'access_coordinator',
+    'access_admin_portal',
+  ],
+  pho_bi_thu: [
+    'view_all_tasks',
+    'create_assign_tasks',
+    'approve_specialized_tasks',
+    'approve_admin_tasks',
+    'manage_incoming_docs',
+    'view_confidential_docs',
+    'send_urgent_remind',
+    'view_reports_kpi',
+    'access_coordinator',
+    'access_admin_portal',
+  ],
+  chanh_van_phong: [
+    'view_all_tasks',
+    'create_assign_tasks',
+    'approve_admin_tasks',
+    'manage_incoming_docs',
+    'send_urgent_remind',
+    'view_reports_kpi',
+    'access_coordinator',
+    'access_admin_portal',
+  ],
+  uy_vien: [
+    'view_all_tasks',
+    'create_assign_tasks',
+  ],
+};

@@ -18,6 +18,7 @@ import {
   LogOut,
   Radio,
   Heart,
+  Camera,
 } from 'lucide-react';
 import DoanLogo from './DoanLogo';
 import AuthModal from './modals/AuthModal';
@@ -50,6 +51,7 @@ export default function Header({ onOpenMobileMenu }: HeaderProps) {
     isSupabaseConnected,
     isAuthModalOpen,
     setIsAuthModalOpen,
+    openAvatarModal,
   } = useApp();
 
   const now = new Date();
@@ -448,6 +450,18 @@ export default function Header({ onOpenMobileMenu }: HeaderProps) {
                     </button>
                   </div>
                 )}
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowMemberDropdown(false);
+                    openAvatarModal(currentMember);
+                  }}
+                  className="w-full mb-2 py-2 px-3 rounded-xl bg-primary/10 text-primary hover:bg-primary/20 text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer shadow-2xs"
+                >
+                  <Camera className="w-4 h-4" />
+                  <span>Thay đổi ảnh đại diện</span>
+                </button>
 
                 <div className="p-2 border-b border-border mb-1 bg-muted/40 rounded-xl">
                   <div className="text-[11px] font-bold text-foreground">Chuyển vai trò BTV kiểm thử</div>

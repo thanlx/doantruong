@@ -36,12 +36,16 @@ import CreateCampaignModal from '@/components/modals/CreateCampaignModal';
 import InactivityLockModal from '@/components/InactivityLockModal';
 import PdfViewerModal from '@/components/modals/PdfViewerModal';
 import WeeklyCheckinModal from '@/components/modals/WeeklyCheckinModal';
+import AvatarPickerModal from '@/components/modals/AvatarPickerModal';
+import { ShieldAlert } from 'lucide-react';
 
 export default function Home() {
   const {
     activeTab,
+    setActiveTab,
     isAuthenticated,
     isMounted,
+    hasPermission,
     isCreateDocModalOpen,
     setIsCreateDocModalOpen,
     isCreateCampaignModalOpen,
@@ -89,12 +93,54 @@ export default function Home() {
       case 'van_ban_den':
         return <IncomingDocsView />;
       case 'dieu_phoi':
+        if (!hasPermission('access_coordinator')) {
+          return (
+            <div className="bg-card rounded-3xl p-8 border border-border text-center max-w-lg mx-auto my-12 space-y-4 shadow-sm animate-in fade-in">
+              <div className="w-14 h-14 rounded-2xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center mx-auto">
+                <ShieldAlert className="w-7 h-7" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-foreground">Giới hạn Bảng điều phối</h3>
+                <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
+                  Bảng điều phối và ma trận đôn đốc tiến độ chỉ dành cho Thường trực Đoàn trường và Chánh văn phòng.
+                </p>
+              </div>
+              <button
+                onClick={() => setActiveTab('trang_chu')}
+                className="px-5 py-2.5 rounded-xl bg-primary text-primary-foreground text-xs font-bold shadow-xs hover:bg-primary/90 transition-all cursor-pointer"
+              >
+                Về Bảng tin Tổng quan
+              </button>
+            </div>
+          );
+        }
         return <CoordinatorView />;
       case 'chat':
         return <ChatView />;
       case 'thanh_vien':
         return <MembersView />;
       case 'admin':
+        if (!hasPermission('access_admin_portal')) {
+          return (
+            <div className="bg-card rounded-3xl p-8 border border-border text-center max-w-lg mx-auto my-12 space-y-4 shadow-sm animate-in fade-in">
+              <div className="w-14 h-14 rounded-2xl bg-destructive/10 text-destructive flex items-center justify-center mx-auto">
+                <ShieldAlert className="w-7 h-7" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-foreground">Khu vực Giới hạn Quyền Quản trị</h3>
+                <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
+                  Khu vực Quản trị Admin chỉ dành cho Thường trực Đoàn trường và các đồng chí được cấp quyền quản trị hệ thống.
+                </p>
+              </div>
+              <button
+                onClick={() => setActiveTab('trang_chu')}
+                className="px-5 py-2.5 rounded-xl bg-primary text-primary-foreground text-xs font-bold shadow-xs hover:bg-primary/90 transition-all cursor-pointer"
+              >
+                Quay về Bảng điều khiển chính
+              </button>
+            </div>
+          );
+        }
         return <AdminView />;
       case 'bao_cao':
         return <ReportsView />;
@@ -166,6 +212,7 @@ export default function Home() {
         isOpen={isWeeklyCheckinModalOpen}
         onClose={() => setIsWeeklyCheckinModalOpen(false)}
       />
+      <AvatarPickerModal />
     </div>
   );
 }
