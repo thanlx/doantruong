@@ -6,7 +6,9 @@ export type MemberRole = 'bi_thu' | 'pho_bi_thu' | 'chanh_van_phong' | 'uy_vien'
 
 export type TaskPriority = 'thap' | 'binh_thuong' | 'cao' | 'khan';
 
-export type TaskStatus = 'moi' | 'dang_lam' | 'cho_duyet' | 'hoan_thanh' | 'tam_dung' | 'huy';
+export type TaskStatus = 'moi' | 'dang_lam' | 'cho_duyet' | 'pending_review' | 'hoan_thanh' | 'tam_dung' | 'huy';
+
+export type RatingGrade = 'A' | 'B' | 'C' | 'D';
 
 export type ApprovalScope = 'hanh_chinh' | 'chuyen_mon';
 
@@ -32,6 +34,10 @@ export interface Member {
   busy_from?: string | null;
   busy_to?: string | null;
   busy_reason?: string | null;
+  delegate_to_id?: string | null;
+  delegate_to?: Member;
+  telegram_chat_id?: string;
+  zalo_user_id?: string;
   created_at?: string;
 }
 
@@ -58,6 +64,10 @@ export interface IncomingDocument {
   thoi_han_xu_ly?: string | null; // THỜI HẠN XỬ LÝ
   ghi_chu?: string;       // GHI CHÚ
   file_path?: string;
+  file_url?: string;      // Đường dẫn file PDF scan (Local Blob hoặc Supabase URL)
+  file_name?: string;     // Tên file gốc (VD: 262-TB-TDTN.pdf)
+  file_size?: number;     // Dung lượng byte
+  access_level?: 'cong_khai' | 'thuong_truc'; // Phân loại độ mật
   created_by?: string;
   created_at?: string;
 }
@@ -80,6 +90,17 @@ export interface Task {
   approved_by?: string | null;
   recur_rule?: string | null;
   recur_parent_id?: string | null;
+
+  // Workflow nộp & duyệt 2 bước + KPI
+  submission_note?: string;
+  submission_links?: string[];
+  submission_files?: string[];
+  review_feedback?: string;
+  rating_grade?: RatingGrade;
+  rating_score?: number; // 1.0 - 10.0
+  rated_by?: string;
+  rated_at?: string;
+
   created_at: string;
   updated_at: string;
 
@@ -90,6 +111,13 @@ export interface Task {
   campaign?: Campaign;
   source_document?: IncomingDocument;
   comments_count?: number;
+
+  // Phân loại độ mật & Liên kết văn bản & Bàn giao
+  access_level?: 'cong_khai' | 'thuong_truc';
+  inherited_doc_file_url?: string;
+  inherited_doc_file_name?: string;
+  delegated_from_id?: string;
+  delegated_from?: Member;
 }
 
 export interface TaskComment {
@@ -113,11 +141,73 @@ export interface TaskAttachment {
   member?: Member;
 }
 
+export type CheckinMood =
+  | 'energetic'
+  | 'happy'
+  | 'neutral'
+  | 'stressed'
+  | 'overloaded'
+  | 'rocket'
+  | 'tired'
+  | 'overload'
+  | 'hao_hung'
+  | 'on_dinh'
+  | 'binh_thuong'
+  | 'ap_luc'
+  | 'qua_tai';
+
+export interface WeeklyCheckin {
+  id: string;
+  member_id: string;
+  week_number: number;
+  year: number;
+  mood: CheckinMood;
+  workload_rating: number; // 1 to 5
+  workload_score?: number; // alias
+  message?: string;
+  note?: string; // alias
+  is_anonymous: boolean;
+  created_at: string;
+  member?: Member;
+}
+
+export interface ChatRichCard {
+  type:
+    | 'baocao'
+    | 'giaoviec'
+    | 'tiendo'
+    | 'vanban'
+    | 'dondoc'
+    | 'progress_report'
+    | 'task_assign'
+    | 'doc_alert'
+    | 'urgent_ping';
+  title: string;
+  summary?: string;
+  description?: string;
+  badge?: string;
+  status_badge?: string;
+  task_id?: string;
+  doc_id?: string;
+  assignee_id?: string;
+  assignee_name?: string;
+  deadline?: string;
+  progress_percent?: number;
+  doc_number?: string;
+  action_label?: string;
+  action_type?: string;
+  primary_action_label?: string;
+  primary_action_route?: string;
+  meta?: Record<string, any>;
+}
+
 export interface ChatMessage {
   id: string;
   member_id: string;
   body: string;
   reply_to?: string | null;
+  mentions?: string[]; // Danh sách member_id được tag @
+  rich_card?: ChatRichCard;
   created_at: string;
   member?: Member;
 }

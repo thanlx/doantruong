@@ -62,12 +62,12 @@ export default function IosGuideView() {
   };
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6 pb-16">
+    <div className="max-w-3xl mx-auto space-y-5 pb-6">
       {/* Tiêu đề */}
       <div>
         <div className="flex items-center gap-2">
           <Smartphone className="w-6 h-6 text-primary" />
-          <h2 className="text-xl sm:text-2xl font-black text-foreground tracking-tight">
+          <h2 className="text-xl sm:text-2xl font-semibold text-foreground tracking-tight">
             Hướng dẫn cài đặt ứng dụng cho iPhone (iOS)
           </h2>
         </div>

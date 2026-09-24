@@ -17,9 +17,14 @@ import {
   LogIn,
   LogOut,
   Radio,
+  Heart,
 } from 'lucide-react';
 import DoanLogo from './DoanLogo';
 import AuthModal from './modals/AuthModal';
+import AvatarWithFallback from './AvatarWithFallback';
+import { cn } from '@/lib/utils';
+import { matchesVietnameseSearch } from '@/lib/searchUtils';
+import { formatRole } from '@/lib/formatters';
 
 interface HeaderProps {
   onOpenMobileMenu?: () => void;
@@ -29,23 +34,37 @@ export default function Header({ onOpenMobileMenu }: HeaderProps) {
   const {
     currentMember,
     members,
+    campaigns,
     setCurrentMemberId,
     notifications,
     tasks,
+    activeTab,
     setActiveTab,
     setSelectedTaskId,
     authUser,
     signOut,
+    logout,
+    weeklyCheckins,
+    setIsWeeklyCheckinModalOpen,
     isRealtimeLive,
     isSupabaseConnected,
     isAuthModalOpen,
     setIsAuthModalOpen,
   } = useApp();
 
+  const now = new Date();
+  const startOfYear = new Date(now.getFullYear(), 0, 1);
+  const currentWeekNumber = Math.ceil(
+    (((now.getTime() - startOfYear.getTime()) / 86400000) + startOfYear.getDay() + 1) / 7
+  );
+  const hasCheckedInThisWeek = (weeklyCheckins || []).some(
+    (c) => c.member_id === currentMember.id && c.week_number === currentWeekNumber && c.year === now.getFullYear()
+  );
+
   const [showMemberDropdown, setShowMemberDropdown] = useState(false);
   const [showNotificationDrawer, setShowNotificationDrawer] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [searchResults, setSearchResults] = useState<{ type: string; id: string; title: string; subtitle: string }[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
 
@@ -84,15 +103,36 @@ export default function Header({ onOpenMobileMenu }: HeaderProps) {
       return;
     }
     setIsSearching(true);
-    const lower = q.toLowerCase();
+
     const matchedTasks = tasks
       .filter(
         (t) =>
-          t.title.toLowerCase().includes(lower) ||
-          (t.description && t.description.toLowerCase().includes(lower))
+          matchesVietnameseSearch(t.title, q) ||
+          matchesVietnameseSearch(t.description || '', q)
       )
-      .slice(0, 5);
-    setSearchResults(matchedTasks);
+      .slice(0, 4)
+      .map((t) => ({ type: 'task', id: t.id, title: t.title, subtitle: 'Công việc' }));
+
+    const matchedCampaigns = campaigns
+      .filter(
+        (c) =>
+          matchesVietnameseSearch(c.name, q) ||
+          matchesVietnameseSearch(c.description || '', q)
+      )
+      .slice(0, 2)
+      .map((c) => ({ type: 'campaign', id: c.id, title: c.name, subtitle: 'Mảng việc / Dự án' }));
+
+    const matchedMembers = members
+      .filter(
+        (m) =>
+          matchesVietnameseSearch(m.full_name, q) ||
+          matchesVietnameseSearch(m.email, q) ||
+          (m.alias && m.alias.some((a) => matchesVietnameseSearch(a, q)))
+      )
+      .slice(0, 3)
+      .map((m) => ({ type: 'member', id: m.id, title: m.full_name, subtitle: formatRole(m.role) }));
+
+    setSearchResults([...matchedTasks, ...matchedCampaigns, ...matchedMembers]);
   };
 
   const getRoleLabel = (role: string) => {
@@ -108,9 +148,28 @@ export default function Header({ onOpenMobileMenu }: HeaderProps) {
     }
   };
 
+  const tabInfoMap: Record<string, { num: string; title: string }> = {
+    trang_chu: { num: '01', title: 'Trang chủ – Tổng quan' },
+    cong_viec: { num: '02', title: 'Quản lý công việc' },
+    viec_cua_toi: { num: '03', title: 'Việc của tôi' },
+    lich: { num: '04', title: 'Lịch làm việc' },
+    du_an: { num: '05', title: 'Dự án / Chiến dịch' },
+    van_ban_den: { num: '06', title: 'Văn bản đến' },
+    dieu_phoi: { num: '07', title: 'Bảng điều phối' },
+    chat: { num: '08', title: 'Chat nhóm BTV' },
+    admin: { num: '09', title: 'Quản trị Admin' },
+    thanh_vien: { num: '10', title: 'Thành viên BTV' },
+    bao_cao: { num: '11', title: 'Báo cáo & Thống kê' },
+    cai_dat: { num: '12', title: 'Cài đặt hệ thống' },
+    thiet_ke: { num: '0', title: 'Hệ thống thiết kế (Design System)' },
+    huong_dan_ios: { num: '13', title: 'Cài đặt iOS (PWA)' },
+  };
+
+  const currentTabInfo = tabInfoMap[activeTab] || { num: '01', title: 'Trang chủ – Tổng quan' };
+
   return (
     <>
-      <header className="h-[var(--header-h)] bg-card border-b border-border px-4 md:px-6 flex items-center justify-between gap-4 sticky top-0 z-30 shadow-xs transition-colors">
+      <header className="h-[var(--header-h)] bg-white/95 dark:bg-card/95 backdrop-blur-md border-b border-border/80 px-4 md:px-6 flex items-center justify-between gap-4 sticky top-0 z-30 shadow-xs transition-colors">
         {/* Mobile Hamburger & Logo */}
         <div className="flex items-center gap-3 md:hidden">
           <button
@@ -120,37 +179,51 @@ export default function Header({ onOpenMobileMenu }: HeaderProps) {
           >
             <Menu className="w-5 h-5" />
           </button>
-          <DoanLogo size={36} />
+          <DoanLogo size={34} />
           <div className="flex flex-col">
-            <span className="text-xs font-bold text-foreground leading-tight">ĐOÀN HCMUTE</span>
-            <span className="text-[10px] text-primary font-semibold">BTV Đoàn trường</span>
+            <span className="text-xs font-black text-foreground leading-tight">ĐOÀN HCMUTE</span>
+            <span className="text-[10px] text-primary font-bold">BTV Đoàn trường</span>
           </div>
         </div>
 
-        {/* Global Search Bar (Desktop) */}
-        <div className="hidden md:flex flex-1 max-w-md relative">
+        {/* Tiêu đề trang kèm Numbered Pill Badge (Khớp 100% hình 02-dashboard-overview.png & tất cả màn hình) */}
+        <div className="hidden md:flex items-center gap-2.5 shrink-0">
+          <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-[#0B5CFF] text-white text-xs font-black shadow-xs">
+            {currentTabInfo.num}
+          </span>
+          <h1 className="text-sm lg:text-base font-bold tracking-tight text-[#0A2558] dark:text-foreground">
+            {currentTabInfo.title}
+          </h1>
+        </div>
+
+        {/* Global Search Bar (Pill Shape khớp hình mẫu) */}
+        <div className="hidden xl:flex flex-1 min-w-0 max-w-sm relative mx-2">
           <div className="relative w-full">
             <Search className="w-4 h-4 text-muted-foreground absolute left-3.5 top-1/2 -translate-y-1/2" />
             <input
-              type="text"
-              placeholder="Tìm kiếm công việc, dự án, thành viên..."
+              type="search"
+              aria-label="Tìm kiếm công việc, dự án, thành viên"
+              onKeyDown={(event) => { if (event.key === 'Escape') setIsSearching(false); }}
+              placeholder="Tìm công việc, dự án, thành viên..."
               value={searchQuery}
               onChange={(e) => handleSearch(e.target.value)}
-              className="w-full bg-muted/70 hover:bg-muted focus:bg-card text-foreground placeholder-muted-foreground text-xs pl-10 pr-4 py-2.5 rounded-full border border-border focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+              className="w-full bg-slate-100/90 dark:bg-muted/70 hover:bg-white dark:hover:bg-muted focus:bg-white dark:focus:bg-card text-foreground placeholder-muted-foreground text-xs pl-10 pr-4 py-2 rounded-full border border-border focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition-all shadow-2xs"
             />
           </div>
 
           {/* Quick Search Dropdown */}
-          {isSearching && searchResults.length > 0 && (
+          {isSearching && (
             <div className="absolute top-12 left-0 w-full bg-card rounded-2xl shadow-lg border border-border p-2 z-50 animate-in fade-in">
               <div className="text-[10px] font-bold text-muted-foreground uppercase px-3 py-1">
                 Công việc phù hợp
               </div>
+              {searchResults.length === 0 && <p className="px-3 py-4 text-xs text-muted-foreground">Không tìm thấy kết quả phù hợp.</p>}
               {searchResults.map((t) => (
                 <button
-                  key={t.id}
+                  key={`${t.type}-${t.id}`}
                   onClick={() => {
-                    setSelectedTaskId(t.id);
+                    if (t.type === 'task') setSelectedTaskId(t.id);
+                    else setActiveTab(t.type === 'campaign' ? 'du_an' : 'thanh_vien');
                     setIsSearching(false);
                     setSearchQuery('');
                   }}
@@ -159,7 +232,7 @@ export default function Header({ onOpenMobileMenu }: HeaderProps) {
                   <span className="font-semibold text-card-foreground group-hover:text-primary truncate">
                     {t.title}
                   </span>
-                  <span className="text-[10px] text-muted-foreground">Xem</span>
+                  <span className="text-[10px] text-muted-foreground">{t.subtitle}</span>
                 </button>
               ))}
             </div>
@@ -170,24 +243,14 @@ export default function Header({ onOpenMobileMenu }: HeaderProps) {
         <div className="flex items-center gap-2 md:gap-3">
           {/* Huy hiệu Supabase Realtime */}
           <div
-            className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border transition-all select-none"
-            style={{
-              backgroundColor: isRealtimeLive
-                ? 'rgba(16, 185, 129, 0.1)'
+            className={cn(
+              "hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border transition-all select-none",
+              isRealtimeLive
+                ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400"
                 : isSupabaseConnected
-                ? 'rgba(2, 132, 199, 0.1)'
-                : 'rgba(100, 116, 139, 0.1)',
-              borderColor: isRealtimeLive
-                ? 'rgba(16, 185, 129, 0.3)'
-                : isSupabaseConnected
-                ? 'rgba(2, 132, 199, 0.3)'
-                : 'rgba(100, 116, 139, 0.2)',
-              color: isRealtimeLive
-                ? '#10b981'
-                : isSupabaseConnected
-                ? '#0284c7'
-                : '#64748b',
-            }}
+                ? "bg-primary/10 border-primary/30 text-primary"
+                : "bg-muted/70 border-border text-muted-foreground"
+            )}
             title={
               isRealtimeLive
                 ? 'Đang kết nối Realtime WebSocket qua Supabase'
@@ -197,21 +260,38 @@ export default function Header({ onOpenMobileMenu }: HeaderProps) {
             }
           >
             <span
-              className={`w-1.5 h-1.5 rounded-full ${
+              className={cn(
+                "w-1.5 h-1.5 rounded-full",
                 isRealtimeLive
-                  ? 'bg-emerald-500 animate-ping'
+                  ? "bg-emerald-500 animate-ping"
                   : isSupabaseConnected
-                  ? 'bg-sky-500'
-                  : 'bg-slate-400'
-              }`}
+                  ? "bg-primary"
+                  : "bg-muted-foreground/60"
+              )}
             />
             <span>{isRealtimeLive ? 'Realtime Live' : isSupabaseConnected ? 'Cloud Sync' : 'Local'}</span>
           </div>
 
+          {/* Nút Nhiệt kế Tinh thần & Check-in Tuần (Chấm đỏ khi chưa check-in) */}
+          <button
+            onClick={() => setIsWeeklyCheckinModalOpen(true)}
+            className="relative p-2.5 text-muted-foreground hover:text-foreground rounded-full hover:bg-muted transition-colors cursor-pointer"
+            title="Nhiệt kế Tinh thần & Check-in Tuần BTV"
+            aria-label="Nhiệt kế Tinh thần & Check-in Tuần"
+          >
+            <Heart className="w-4 h-4 text-rose-500 fill-rose-500/20" />
+            {!hasCheckedInThisWeek && (
+              <span className="absolute top-1.5 right-1.5 flex h-2.5 w-2.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500 ring-2 ring-card"></span>
+              </span>
+            )}
+          </button>
+
           {/* Nút bật/tắt Dark Mode */}
           <button
             onClick={toggleDarkMode}
-            className="p-2.5 text-muted-foreground hover:text-foreground rounded-full hover:bg-muted transition-colors"
+            className="p-2.5 text-muted-foreground hover:text-foreground rounded-full hover:bg-muted transition-colors cursor-pointer"
             title={isDarkMode ? 'Chuyển sang Giao diện Sáng' : 'Chuyển sang Giao diện Tối'}
             aria-label="Chuyển chế độ giao diện"
           >
@@ -275,7 +355,7 @@ export default function Header({ onOpenMobileMenu }: HeaderProps) {
           {!authUser && (
             <button
               onClick={() => setIsAuthModalOpen(true)}
-              className="hidden sm:inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white text-gray-800 hover:bg-gray-100 dark:bg-card dark:text-foreground dark:hover:bg-muted border border-border shadow-xs text-xs font-bold transition-all"
+              className="hidden sm:inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-card text-foreground hover:bg-muted border border-border shadow-2xs text-xs font-bold transition-all"
             >
               <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24">
                 <path
@@ -303,17 +383,14 @@ export default function Header({ onOpenMobileMenu }: HeaderProps) {
           <div className="relative">
             <button
               onClick={() => setShowMemberDropdown(!showMemberDropdown)}
-              className="flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-full hover:bg-muted border border-border transition-all text-left bg-card shadow-2xs"
+              className="flex items-center gap-2 pl-1.5 pr-3 py-1.5 rounded-full hover:bg-slate-100 dark:hover:bg-muted border border-border transition-all text-left bg-white dark:bg-card shadow-2xs"
             >
               <div className="relative">
-                <img
-                  src={
-                    authUser?.user_metadata?.avatar_url ||
-                    currentMember.avatar_url ||
-                    'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100'
-                  }
-                  alt={currentMember.full_name}
-                  className="w-8 h-8 rounded-full object-cover ring-1 ring-border"
+                <AvatarWithFallback
+                  name={currentMember.full_name}
+                  src={authUser?.user_metadata?.avatar_url || currentMember.avatar_url}
+                  size="sm"
+                  className="w-8 h-8 rounded-full ring-1 ring-border"
                 />
                 {authUser && (
                   <span
@@ -410,6 +487,20 @@ export default function Header({ onOpenMobileMenu }: HeaderProps) {
                       </button>
                     );
                   })}
+                </div>
+
+                {/* Nút Đăng xuất hệ thống */}
+                <div className="pt-2 mt-2 border-t border-border">
+                  <button
+                    onClick={async () => {
+                      setShowMemberDropdown(false);
+                      await logout();
+                    }}
+                    className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-destructive hover:bg-destructive/10 text-xs font-bold transition-colors cursor-pointer"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                    <span>Đăng xuất hệ thống BTV</span>
+                  </button>
                 </div>
               </div>
             )}

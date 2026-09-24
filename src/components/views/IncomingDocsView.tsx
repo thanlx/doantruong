@@ -20,17 +20,45 @@ import {
   Clock,
   Send,
   X,
+  Paperclip,
+  Lock,
+  ShieldAlert,
+  Sparkles,
+  Eye,
+  AlertTriangle,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import * as XLSX from 'xlsx';
+import { matchesVietnameseSearch } from '@/lib/searchUtils';
+import { getDocumentSignedUrl } from '@/lib/supabaseStorage';
 
 export default function IncomingDocsView() {
-  const { incomingDocs, members, addIncomingDoc, createTasksFromDoc, currentMember, tasks } = useApp();
+  const { incomingDocs, members, addIncomingDoc, createTasksFromDoc, currentMember, tasks, openPdfViewer, setIsCreateDocModalOpen } = useApp();
+
+  const isLeader = currentMember.role === 'bi_thu' || currentMember.role === 'pho_bi_thu';
 
   const [searchQuery, setSearchQuery] = useState('');
   const [filterSender, setFilterSender] = useState('all');
+  const [filterStatus, setFilterStatus] = useState<'all' | 'chua_xu_ly' | 'dang_xu_ly' | 'hoan_thanh'>('all');
   const [isAddDocModalOpen, setIsAddDocModalOpen] = useState(false);
   const [assigningDoc, setAssigningDoc] = useState<any | null>(null);
+
+  // Helper tính trạng thái văn bản
+  const getDocStatusCode = (docId: string): 'chua_xu_ly' | 'dang_xu_ly' | 'hoan_thanh' => {
+    const linkedTasks = tasks.filter((t) => t.source_document_id === docId);
+    if (linkedTasks.length === 0) return 'chua_xu_ly';
+    const allCompleted = linkedTasks.every((t) => t.status === 'hoan_thanh');
+    if (allCompleted) return 'hoan_thanh';
+    return 'dang_xu_ly';
+  };
+
+  // Đếm theo trạng thái cho các filter pills
+  const statusCounts = {
+    all: incomingDocs.length,
+    chua_xu_ly: incomingDocs.filter((d) => getDocStatusCode(d.id) === 'chua_xu_ly').length,
+    dang_xu_ly: incomingDocs.filter((d) => getDocStatusCode(d.id) === 'dang_xu_ly').length,
+    hoan_thanh: incomingDocs.filter((d) => getDocStatusCode(d.id) === 'hoan_thanh').length,
+  };
 
   // State form thêm văn bản
   const [newDoc, setNewDoc] = useState({
@@ -50,15 +78,16 @@ export default function IncomingDocsView() {
   const [assigneePriority, setAssigneePriority] = useState<'thap' | 'binh_thuong' | 'cao' | 'khan'>('binh_thuong');
   const [assigneeScope, setAssigneeScope] = useState<'hanh_chinh' | 'chuyen_mon'>('hanh_chinh');
 
-  // Lọc văn bản
+  // Lọc văn bản có hỗ trợ tìm kiếm tiếng Việt không dấu & lọc trạng thái
   const filteredDocs = incomingDocs.filter((doc) => {
     if (filterSender !== 'all' && doc.don_vi_gui !== filterSender) return false;
+    if (filterStatus !== 'all' && getDocStatusCode(doc.id) !== filterStatus) return false;
     if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      const matchNoiDung = doc.noi_dung.toLowerCase().includes(q);
-      const matchSo = doc.so_ky_hieu?.toLowerCase().includes(q);
-      const matchNguoi = doc.nguoi_nhan_xu_ly?.toLowerCase().includes(q);
-      if (!matchNoiDung && !matchSo && !matchNguoi) return false;
+      const matchNoiDung = matchesVietnameseSearch(doc.noi_dung, searchQuery);
+      const matchSo = matchesVietnameseSearch(doc.so_ky_hieu || '', searchQuery);
+      const matchNguoi = matchesVietnameseSearch(doc.nguoi_nhan_xu_ly || '', searchQuery);
+      const matchDonVi = matchesVietnameseSearch(doc.don_vi_gui, searchQuery);
+      if (!matchNoiDung && !matchSo && !matchNguoi && !matchDonVi) return false;
     }
     return true;
   });
@@ -133,24 +162,24 @@ export default function IncomingDocsView() {
 
   // Kiểm tra trạng thái xử lý văn bản dựa trên các task sinh ra từ nó
   const getDocumentStatus = (docId: string) => {
+    const code = getDocStatusCode(docId);
+    if (code === 'chua_xu_ly') {
+      return { label: 'Chưa xử lý', color: 'bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA]' };
+    }
+    if (code === 'hoan_thanh') {
+      return { label: 'Đã hoàn thành', color: 'bg-[#ECFDF5] text-[#059669] border border-[#A7F3D0]' };
+    }
     const linkedTasks = tasks.filter((t) => t.source_document_id === docId);
-    if (linkedTasks.length === 0) {
-      return { label: 'Chưa giao việc', color: 'bg-muted text-muted-foreground border border-border' };
-    }
-    const allCompleted = linkedTasks.every((t) => t.status === 'hoan_thanh');
-    if (allCompleted) {
-      return { label: 'Đã hoàn thành', color: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20' };
-    }
-    return { label: `Đang xử lý (${linkedTasks.length} task)`, color: 'bg-primary/10 text-primary border border-primary/20' };
+    return { label: `Đang xử lý (${linkedTasks.length})`, color: 'bg-[#EBF2FF] text-[#0B5CFF] border border-[#BFDBFE]' };
   };
 
   return (
-    <div className="space-y-6 pb-16">
+    <div className="space-y-5 pb-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
-            <h2 className="text-xl sm:text-2xl font-black text-foreground tracking-tight">
+            <h2 className="text-xl sm:text-2xl font-semibold text-foreground tracking-tight">
               Sổ theo dõi Văn bản đến
             </h2>
             <span className="text-xs bg-primary/10 text-primary border border-primary/20 font-bold px-2 py-0.5 rounded-full">
@@ -174,13 +203,60 @@ export default function IncomingDocsView() {
 
           {/* Nút Thêm văn bản */}
           <button
-            onClick={() => setIsAddDocModalOpen(true)}
-            className="inline-flex items-center gap-2 bg-primary hover:bg-primary/90 text-primary-foreground text-xs sm:text-sm font-semibold px-4 py-2.5 rounded-xl shadow-sm active:scale-95 transition-all"
+            onClick={() => setIsCreateDocModalOpen(true)}
+            className="inline-flex items-center gap-2 bg-[#0B5CFF] hover:bg-[#094cd4] text-white text-xs sm:text-sm font-semibold px-4 py-2.5 rounded-xl shadow-sm active:scale-95 transition-all"
           >
             <Plus className="w-4 h-4 stroke-[2.5]" />
             <span>Nhập văn bản mới</span>
           </button>
         </div>
+      </div>
+
+      {/* Filter Tabs Trạng thái theo thiết kế 08-incoming-documents.png */}
+      <div className="flex items-center gap-2 overflow-x-auto scrollbar-none pb-1">
+        <button
+          onClick={() => setFilterStatus('all')}
+          className={`px-3.5 py-1.5 rounded-full text-xs font-bold transition-all whitespace-nowrap ${
+            filterStatus === 'all'
+              ? 'bg-[#EBF2FF] text-[#0B5CFF] border border-[#BFDBFE] shadow-2xs'
+              : 'text-muted-foreground hover:text-foreground bg-card border border-border/80'
+          }`}
+        >
+          Tất cả ({statusCounts.all})
+        </button>
+
+        <button
+          onClick={() => setFilterStatus('chua_xu_ly')}
+          className={`px-3.5 py-1.5 rounded-full text-xs font-bold transition-all whitespace-nowrap ${
+            filterStatus === 'chua_xu_ly'
+              ? 'bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA] shadow-2xs'
+              : 'text-muted-foreground hover:text-foreground bg-card border border-border/80'
+          }`}
+        >
+          Chưa xử lý ({statusCounts.chua_xu_ly})
+        </button>
+
+        <button
+          onClick={() => setFilterStatus('dang_xu_ly')}
+          className={`px-3.5 py-1.5 rounded-full text-xs font-bold transition-all whitespace-nowrap ${
+            filterStatus === 'dang_xu_ly'
+              ? 'bg-[#EBF2FF] text-[#0B5CFF] border border-[#BFDBFE] shadow-2xs'
+              : 'text-muted-foreground hover:text-foreground bg-card border border-border/80'
+          }`}
+        >
+          Đang xử lý ({statusCounts.dang_xu_ly})
+        </button>
+
+        <button
+          onClick={() => setFilterStatus('hoan_thanh')}
+          className={`px-3.5 py-1.5 rounded-full text-xs font-bold transition-all whitespace-nowrap ${
+            filterStatus === 'hoan_thanh'
+              ? 'bg-[#ECFDF5] text-[#059669] border border-[#A7F3D0] shadow-2xs'
+              : 'text-muted-foreground hover:text-foreground bg-card border border-border/80'
+          }`}
+        >
+          Đã hoàn thành ({statusCounts.hoan_thanh})
+        </button>
       </div>
 
       {/* Thanh lọc & tìm kiếm */}
@@ -229,9 +305,57 @@ export default function IncomingDocsView() {
             </thead>
             <tbody className="divide-y divide-border">
               {filteredDocs.map((doc, idx) => {
+                const isConfidential = doc.access_level === 'thuong_truc';
+                const isLockedForMe = isConfidential && !isLeader;
                 const isUnassigned =
                   doc.nguoi_nhan_xu_ly?.toLowerCase().includes('xin ý kiến') || !doc.nguoi_nhan_xu_ly;
                 const status = getDocumentStatus(doc.id);
+
+                if (isLockedForMe) {
+                  return (
+                    <tr key={doc.id} className="bg-rose-500/5 hover:bg-rose-500/10 transition-colors">
+                      <td className="py-3 px-3 text-center font-bold text-muted-foreground">{idx + 1}</td>
+                      <td className="py-3 px-3 font-semibold text-foreground">
+                        <div className="flex items-center gap-1.5">
+                          <Building className="w-3.5 h-3.5 text-primary shrink-0" />
+                          <span>{doc.don_vi_gui}</span>
+                        </div>
+                      </td>
+                      <td className="py-3 px-3 text-foreground">
+                        <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/10 text-rose-600 border border-rose-500/20 mb-1">
+                          <Lock className="w-3 h-3" />
+                          <span>MẬT - NỘI BỘ THƯỜNG TRỰC</span>
+                        </div>
+                        <div className="text-[11px] text-muted-foreground italic">
+                          Văn bản mật nội bộ Thường trực Đoàn trường. Chỉ Bí thư & Phó Bí thư có thẩm quyền truy cập.
+                        </div>
+                      </td>
+                      <td className="py-3 px-3 font-mono text-muted-foreground select-none">
+                        ••••••••
+                      </td>
+                      <td className="py-3 px-3 text-muted-foreground font-mono text-[11px]">
+                        {doc.ngay_nhan ? format(new Date(doc.ngay_nhan), 'dd/MM/yyyy') : '-'}
+                      </td>
+                      <td className="py-3 px-3 text-muted-foreground italic text-xs">
+                        Thường trực
+                      </td>
+                      <td className="py-3 px-3 text-muted-foreground italic text-[11px] select-none">
+                        ••••
+                      </td>
+                      <td className="py-3 px-3">
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/10 text-rose-600 border border-rose-500/20">
+                          Bảo mật
+                        </span>
+                      </td>
+                      <td className="py-3 px-3 text-center">
+                        <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground/80 italic">
+                          <Lock className="w-3 h-3 text-rose-500" />
+                          <span>Khóa quyền</span>
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                }
 
                 return (
                   <tr key={doc.id} className="hover:bg-muted/40 transition-colors">
@@ -243,6 +367,12 @@ export default function IncomingDocsView() {
                       </div>
                     </td>
                     <td className="py-3 px-3 text-foreground">
+                      {isConfidential && (
+                        <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/10 text-rose-600 border border-rose-500/20 mb-1">
+                          <Lock className="w-3 h-3" />
+                          <span>🔒 MẬT - THƯỜNG TRỰC</span>
+                        </div>
+                      )}
                       <div className="font-medium line-clamp-2 leading-relaxed">{doc.noi_dung}</div>
                       {doc.ghi_chu && (
                         <div className="text-[10px] text-muted-foreground italic mt-0.5">
@@ -282,13 +412,25 @@ export default function IncomingDocsView() {
                       </span>
                     </td>
                     <td className="py-3 px-3 text-center">
-                      <button
-                        onClick={() => openAssignModal(doc)}
-                        className="px-2.5 py-1 rounded-lg bg-primary/10 hover:bg-primary/20 text-primary text-xs font-semibold inline-flex items-center gap-1 transition-colors border border-primary/20"
-                      >
-                        <UserPlus className="w-3.5 h-3.5" />
-                        <span>Giao việc</span>
-                      </button>
+                      <div className="flex items-center justify-center gap-1.5">
+                        {(doc.file_url || doc.file_path) && (
+                          <button
+                            onClick={() => openPdfViewer(doc.file_url || doc.file_path!, doc.so_ky_hieu || doc.noi_dung, doc)}
+                            className="px-2.5 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 text-xs font-semibold inline-flex items-center gap-1 transition-colors border border-rose-500/30"
+                            title="Xem trực tiếp PDF scan công văn"
+                          >
+                            <FileText className="w-3.5 h-3.5" />
+                            <span>Xem PDF</span>
+                          </button>
+                        )}
+                        <button
+                          onClick={() => openAssignModal(doc)}
+                          className="px-2.5 py-1 rounded-lg bg-primary/10 hover:bg-primary/20 text-primary text-xs font-semibold inline-flex items-center gap-1 transition-colors border border-primary/20"
+                        >
+                          <UserPlus className="w-3.5 h-3.5" />
+                          <span>Giao việc</span>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -305,9 +447,29 @@ export default function IncomingDocsView() {
             </div>
           ) : (
             filteredDocs.map((doc, idx) => {
+              const isConfidential = doc.access_level === 'thuong_truc';
+              const isLockedForMe = isConfidential && !isLeader;
               const isUnassigned =
                 doc.nguoi_nhan_xu_ly?.toLowerCase().includes('xin ý kiến') || !doc.nguoi_nhan_xu_ly;
               const status = getDocumentStatus(doc.id);
+
+              if (isLockedForMe) {
+                return (
+                  <div key={doc.id} className="p-4 space-y-2.5 bg-rose-500/5 border-l-4 border-rose-500">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-mono font-bold text-muted-foreground">#{idx + 1}</span>
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/10 text-rose-600 border border-rose-500/20">
+                        <Lock className="w-3 h-3" />
+                        <span>MẬT - THƯỜNG TRỰC</span>
+                      </span>
+                    </div>
+                    <div className="text-xs font-semibold text-foreground">{doc.don_vi_gui}</div>
+                    <p className="text-[11px] text-muted-foreground italic">
+                      Văn bản mật nội bộ Thường trực Đoàn trường. Chỉ Bí thư & Phó Bí thư có quyền truy cập.
+                    </p>
+                  </div>
+                );
+              }
 
               return (
                 <div key={doc.id} className="p-4 space-y-3">
@@ -320,9 +482,17 @@ export default function IncomingDocsView() {
                         {doc.so_ky_hieu || 'Chưa có số'}
                       </span>
                     </div>
-                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${status.color}`}>
-                      {status.label}
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      {isConfidential && (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/10 text-rose-600 border border-rose-500/20 flex items-center gap-1">
+                          <Lock className="w-2.5 h-2.5" />
+                          <span>Mật</span>
+                        </span>
+                      )}
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${status.color}`}>
+                        {status.label}
+                      </span>
+                    </div>
                   </div>
 
                   <div>
@@ -367,13 +537,24 @@ export default function IncomingDocsView() {
                     </div>
                   </div>
 
-                  <button
-                    onClick={() => openAssignModal(doc)}
-                    className="w-full py-2 rounded-xl bg-primary text-primary-foreground text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm active:scale-98 transition-transform"
-                  >
-                    <UserPlus className="w-4 h-4" />
-                    <span>Giao việc từ văn bản này</span>
-                  </button>
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    {(doc.file_url || doc.file_path) && (
+                      <button
+                        onClick={() => openPdfViewer(doc.file_url || doc.file_path!, doc.so_ky_hieu || doc.noi_dung, doc)}
+                        className="w-full py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 text-xs font-bold flex items-center justify-center gap-1.5 border border-rose-500/30 transition-colors"
+                      >
+                        <FileText className="w-4 h-4" />
+                        <span>Xem trực tiếp PDF scan</span>
+                      </button>
+                    )}
+                    <button
+                      onClick={() => openAssignModal(doc)}
+                      className="w-full py-2 rounded-xl bg-primary text-primary-foreground text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm active:scale-98 transition-transform"
+                    >
+                      <UserPlus className="w-4 h-4" />
+                      <span>Giao việc từ văn bản này</span>
+                    </button>
+                  </div>
                 </div>
               );
             })
@@ -399,6 +580,27 @@ export default function IncomingDocsView() {
                 <X className="w-5 h-5" />
               </button>
             </div>
+
+            {/* Cảnh báo trùng lặp (Idempotency check) */}
+            {tasks.filter((t) => t.source_document_id === assigningDoc.id).length > 0 && (
+              <div className="p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-800 dark:text-amber-300 space-y-1">
+                <div className="font-bold flex items-center gap-1.5">
+                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>
+                    Lưu ý: Văn bản này đã được giao {tasks.filter((t) => t.source_document_id === assigningDoc.id).length} việc trước đó!
+                  </span>
+                </div>
+                <div className="text-[11px] opacity-90 pl-1 space-y-0.5">
+                  {tasks
+                    .filter((t) => t.source_document_id === assigningDoc.id)
+                    .map((t) => (
+                      <div key={t.id} className="truncate">
+                        • {t.title} ({members.find((m) => m.id === t.owner_id)?.full_name || 'BTV'})
+                      </div>
+                    ))}
+                </div>
+              </div>
+            )}
 
             <form onSubmit={handleConfirmAssign} className="space-y-4">
               <div>
@@ -445,6 +647,45 @@ export default function IncomingDocsView() {
                     );
                   })}
                 </div>
+
+                {/* Cảnh báo BTV đang bận & gợi ý thay thế 1 chạm */}
+                {members
+                  .filter((m) => selectedAssignees.includes(m.id) && m.busy_from && m.busy_to)
+                  .map((bm) => {
+                    const delegateMember = members.find((m) => m.id === bm.delegate_to_id);
+                    return (
+                      <div
+                        key={bm.id}
+                        className="mt-2.5 p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-900 dark:text-amber-200 space-y-1.5"
+                      >
+                        <div className="font-bold flex items-center gap-1.5 text-amber-700 dark:text-amber-300">
+                          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                          <span>
+                            Đ/c {bm.full_name} đang bận {bm.busy_reason || 'công tác'} ({format(new Date(bm.busy_from!), 'dd/MM')} - {format(new Date(bm.busy_to!), 'dd/MM')})
+                          </span>
+                        </div>
+                        {delegateMember && (
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1 border-t border-amber-500/20">
+                            <span className="text-[11px]">
+                              Đã ủy quyền cho: <strong className="text-foreground">{delegateMember.full_name}</strong>
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedAssignees((prev) => [
+                                  ...prev.filter((id) => id !== bm.id),
+                                  delegateMember.id,
+                                ]);
+                              }}
+                              className="px-2.5 py-1 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-[11px] shadow-xs transition-colors self-start sm:self-auto"
+                            >
+                              Chuyển giao cho Đ/c {delegateMember.full_name.split(' ').slice(-2).join(' ')}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
               </div>
 
               <div className="grid grid-cols-2 gap-3">

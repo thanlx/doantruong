@@ -25,6 +25,10 @@ import {
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { requestNotificationPermission, getNotificationPermissionState, sendMobileNotification } from '@/lib/pushNotifications';
+import EventCountdown from '@/components/EventCountdown';
+import DashboardCalendar from '@/components/DashboardCalendar';
+import AvatarWithFallback from '@/components/AvatarWithFallback';
+import type { Task } from '@/types';
 
 export default function DashboardView() {
   const {
@@ -42,7 +46,6 @@ export default function DashboardView() {
     clearDummyData,
   } = useApp();
 
-  const [selectedCalendarDay, setSelectedCalendarDay] = useState<number>(22);
   const [notifState, setNotifState] = useState<string>(getNotificationPermissionState());
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -66,7 +69,9 @@ export default function DashboardView() {
   ).length;
 
   // Danh sách công việc gần đây
-  const recentTasks = tasks.slice(0, 6);
+  const recentTasks = [...tasks].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 6);
+  const upcomingTasks = tasks.filter(task => task.status !== 'hoan_thanh' && task.status !== 'huy')
+    .sort((a, b) => (a.due_at ? new Date(a.due_at).getTime() : Infinity) - (b.due_at ? new Date(b.due_at).getTime() : Infinity));
 
   // Xử lý bật thông báo điện thoại
   const handleEnableNotification = async () => {
@@ -87,40 +92,41 @@ export default function DashboardView() {
     }
   };
 
-  const getStatusBadge = (task: any) => {
-    const isOverdue = task.due_at && new Date(task.due_at) < now && task.status !== 'hoan_thanh';
+  const getStatusBadge = (task: Task) => {
+    const isOverdue = task.due_at && new Date(task.due_at) < now && task.status !== 'hoan_thanh' && task.status !== 'huy';
 
     if (isOverdue) {
       return (
-        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-destructive/10 text-destructive border border-destructive/20">
+        <span className="inline-flex items-center px-3 py-0.5 rounded-full text-[11px] font-bold bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA] dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800">
           Quá hạn
         </span>
       );
     }
 
     switch (task.status) {
+      case 'pending_review':
       case 'cho_duyet':
         return (
-          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+          <span className="inline-flex items-center px-3 py-0.5 rounded-full text-[11px] font-bold bg-[#FFFBEB] text-[#D97706] border border-[#FDE68A] dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800">
             Chờ duyệt
           </span>
         );
       case 'hoan_thanh':
         return (
-          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+          <span className="inline-flex items-center px-3 py-0.5 rounded-full text-[11px] font-bold bg-[#ECFDF5] text-[#059669] border border-[#A7F3D0] dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800">
             Hoàn thành
           </span>
         );
       case 'dang_lam':
         return (
-          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-primary/10 text-primary border border-primary/20">
+          <span className="inline-flex items-center px-3 py-0.5 rounded-full text-[11px] font-bold bg-[#EBF2FF] text-[#0B5CFF] border border-[#BFDBFE] dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800">
             Đang thực hiện
           </span>
         );
       default:
         return (
-          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-muted text-muted-foreground border border-border">
-            Mới
+          <span className="inline-flex items-center px-3 py-0.5 rounded-full text-[11px] font-bold bg-[#F1F5F9] text-[#475569] border border-[#CBD5E1] dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700">
+            Chưa bắt đầu
           </span>
         );
     }
@@ -140,7 +146,7 @@ export default function DashboardView() {
   };
 
   return (
-    <div className="space-y-6 pb-12">
+    <div className="space-y-4 pb-6">
       {/* Toast thông báo */}
       {toastMessage && (
         <div className="fixed bottom-6 right-6 z-50 bg-emerald-600 text-white px-4 py-3 rounded-2xl shadow-xl flex items-center gap-2 text-xs font-bold animate-in slide-in-from-bottom-5">
@@ -149,41 +155,21 @@ export default function DashboardView() {
         </div>
       )}
 
-      {/* 1. HERO GREETING BANNER */}
-      <div className="relative rounded-3xl bg-gradient-to-r from-primary/10 via-accent/20 to-secondary/15 p-6 sm:p-8 border border-border shadow-xs overflow-hidden flex flex-col md:flex-row md:items-center justify-between gap-6 transition-colors">
-        <div className="max-w-xl z-10">
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-primary/15 text-primary text-xs font-semibold mb-3">
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>Ban Thường vụ Đoàn trường HCMUTE</span>
-          </div>
-          <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-foreground leading-tight">
-            Xin chào, {currentMember.full_name}!
-          </h1>
-          <p className="text-sm text-muted-foreground font-normal mt-2 leading-relaxed">
-            Cùng BTV Đoàn trường hoàn thành những mục tiêu và lan tỏa giá trị thanh niên HCMUTE!
-          </p>
+      <section className="dashboard-hero" aria-label="Lời chào">
+        <div className="space-y-2">
+          <span className="text-[10px] uppercase tracking-[.16em] font-semibold text-primary">Không gian làm việc BTV</span>
+          <h1>Xin chào, {currentMember.full_name}! 👋</h1>
+          <p className="text-muted-foreground">Cùng nhau xây dựng môi trường học tập năng động.<br className="hidden xl:block" /> Sáng tạo và giàu bản sắc thanh niên.</p>
         </div>
-
-        {/* Ảnh toà nhà campus HCMUTE bên phải banner */}
-        <div className="relative md:w-72 lg:w-96 h-36 md:h-40 rounded-2xl overflow-hidden shadow-md ring-2 ring-card shrink-0">
-          <img
-            src="/images/hcmute-campus.jpg"
-            alt="ĐH Sư phạm Kỹ thuật TP.HCM"
-            className="w-full h-full object-cover transform hover:scale-105 transition-transform duration-500"
-          />
-          <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent flex items-end p-3">
-            <span className="text-[11px] font-bold text-white tracking-wide drop-shadow-xs">
-              Trụ sở Đoàn trường HCMUTE
-            </span>
-          </div>
-        </div>
-      </div>
+        <img src="/images/hcmute-campus.webp" alt="Khuôn viên trường HCMUTE" className="dashboard-campus" />
+        <blockquote className="dashboard-quote">“Đâu cần thanh niên có,<br />đâu khó có thanh niên”<cite>— Chủ tịch Hồ Chí Minh</cite></blockquote>
+      </section>
 
       {/* 2. DẢI NÚT THAO TÁC NHANH (QUICK ACTIONS TOOLBAR) */}
       <div className="flex items-center gap-2 sm:gap-2.5 overflow-x-auto pb-1 scrollbar-none snap-x -mx-1 px-1">
         <button
           onClick={() => setIsCreateTaskModalOpen(true)}
-          className="px-4 py-2.5 rounded-2xl bg-primary text-primary-foreground font-bold text-xs flex items-center gap-2 shadow-sm hover:bg-primary/90 transition-all active:scale-95 shrink-0"
+          className="px-4 py-2 rounded-xl bg-[#0B5CFF] text-white font-bold text-xs flex items-center gap-2 shadow-xs hover:bg-blue-600 transition-all active:scale-95 shrink-0"
         >
           <PlusCircle className="w-4 h-4" />
           <span>+ Giao việc mới</span>
@@ -191,7 +177,7 @@ export default function DashboardView() {
 
         <button
           onClick={() => setIsCreateDocModalOpen(true)}
-          className="px-4 py-2.5 rounded-2xl bg-teal-600 text-white font-bold text-xs flex items-center gap-2 shadow-sm hover:bg-teal-700 transition-all active:scale-95 shrink-0"
+          className="px-4 py-2 rounded-xl bg-teal-600 text-white font-bold text-xs flex items-center gap-2 shadow-xs hover:bg-teal-700 transition-all active:scale-95 shrink-0"
         >
           <FilePlus className="w-4 h-4" />
           <span>+ Tiếp nhận văn bản</span>
@@ -199,7 +185,7 @@ export default function DashboardView() {
 
         <button
           onClick={() => setIsCreateCampaignModalOpen(true)}
-          className="px-4 py-2.5 rounded-2xl bg-amber-500 text-white font-bold text-xs flex items-center gap-2 shadow-sm hover:bg-amber-600 transition-all active:scale-95 shrink-0"
+          className="px-4 py-2 rounded-xl bg-amber-500 text-white font-bold text-xs flex items-center gap-2 shadow-xs hover:bg-amber-600 transition-all active:scale-95 shrink-0"
         >
           <FolderPlus className="w-4 h-4" />
           <span>+ Tạo mảng việc</span>
@@ -207,16 +193,16 @@ export default function DashboardView() {
 
         <button
           onClick={handleEnableNotification}
-          className="px-4 py-2.5 rounded-2xl border border-border hover:bg-muted text-foreground font-bold text-xs flex items-center gap-2 transition-all active:scale-95 shrink-0"
+          className="px-4 py-2 rounded-xl border border-border bg-white dark:bg-card hover:bg-muted text-foreground font-bold text-xs flex items-center gap-2 transition-all active:scale-95 shrink-0 shadow-2xs"
         >
           <Bell className="w-4 h-4 text-primary" />
-          <span>{notifState === 'granted' ? 'Đã bật thông báo điện thoại' : 'Bật thông báo điện thoại'}</span>
+          <span>{notifState === 'granted' ? 'Đã bật thông báo' : 'Bật thông báo điện thoại'}</span>
         </button>
 
         {dummyTasksCount > 0 && (
           <button
             onClick={handleClearDummy}
-            className="px-3.5 py-2.5 rounded-2xl bg-destructive/10 text-destructive border border-destructive/20 hover:bg-destructive/20 font-bold text-xs flex items-center gap-1.5 transition-all active:scale-95 shrink-0"
+            className="px-3.5 py-2 rounded-xl bg-destructive/10 text-destructive border border-destructive/20 hover:bg-destructive/20 font-bold text-xs flex items-center gap-1.5 transition-all active:scale-95 shrink-0"
             title="Xóa các công việc mẫu năm 2025"
           >
             <Trash2 className="w-3.5 h-3.5" />
@@ -225,15 +211,15 @@ export default function DashboardView() {
         )}
       </div>
 
-      {/* 3. BỐN THẺ CHỈ SỐ NHANH */}
+      {/* 3. BỐN THẺ CHỈ SỐ NHANH (Khớp 100% hình 02-dashboard-overview.png) */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-        {/* Card 1: 9 Thành viên */}
-        <div
+        {/* Card 1: 9 Thành viên BTV */}
+        <button type="button"
           onClick={() => setActiveTab('thanh_vien')}
-          className="bg-card rounded-2xl p-4 sm:p-5 border border-border shadow-xs hover:shadow-md transition-all cursor-pointer group"
+          className="bg-white dark:bg-card rounded-2xl p-4 sm:p-5 border border-border shadow-xs hover:shadow-md transition-all cursor-pointer group text-left"
         >
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-2xl bg-primary/10 text-primary flex items-center justify-center group-hover:scale-110 transition-transform">
+          <div className="flex items-center gap-3.5">
+            <div className="w-12 h-12 rounded-2xl bg-blue-50 dark:bg-blue-950/50 text-[#0B5CFF] flex items-center justify-center group-hover:scale-105 transition-transform shadow-2xs">
               <Users className="w-6 h-6" />
             </div>
             <div>
@@ -241,55 +227,55 @@ export default function DashboardView() {
               <div className="text-xs text-muted-foreground font-medium mt-1">Thành viên BTV</div>
             </div>
           </div>
-        </div>
+        </button>
 
         {/* Card 2: Công việc đang thực hiện */}
-        <div
+        <button type="button"
           onClick={() => setActiveTab('cong_viec')}
-          className="bg-card rounded-2xl p-4 sm:p-5 border border-border shadow-xs hover:shadow-md transition-all cursor-pointer group"
+          className="bg-white dark:bg-card rounded-2xl p-4 sm:p-5 border border-border shadow-xs hover:shadow-md transition-all cursor-pointer group text-left"
         >
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-2xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center group-hover:scale-110 transition-transform">
+          <div className="flex items-center gap-3.5">
+            <div className="w-12 h-12 rounded-2xl bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 flex items-center justify-center group-hover:scale-105 transition-transform shadow-2xs">
               <ClipboardList className="w-6 h-6" />
             </div>
             <div>
               <div className="text-2xl font-black text-foreground leading-none">{inProgressTasks.length}</div>
-              <div className="text-xs text-muted-foreground font-medium mt-1">CV đang thực hiện</div>
+              <div className="text-xs text-muted-foreground font-medium mt-1">Công việc đang thực hiện</div>
             </div>
           </div>
-        </div>
+        </button>
 
         {/* Card 3: Công việc quá hạn */}
-        <div
+        <button type="button"
           onClick={() => setActiveTab('dieu_phoi')}
-          className="bg-card rounded-2xl p-4 sm:p-5 border border-border shadow-xs hover:shadow-md transition-all cursor-pointer group"
+          className="bg-white dark:bg-card rounded-2xl p-4 sm:p-5 border border-border shadow-xs hover:shadow-md transition-all cursor-pointer group text-left"
         >
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-2xl bg-destructive/10 text-destructive flex items-center justify-center group-hover:scale-110 transition-transform">
-              <AlertCircle className="w-6 h-6" />
+          <div className="flex items-center gap-3.5">
+            <div className="w-12 h-12 rounded-2xl bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 flex items-center justify-center group-hover:scale-105 transition-transform shadow-2xs">
+              <Clock className="w-6 h-6" />
             </div>
             <div>
-              <div className="text-2xl font-black text-destructive leading-none">{overdueTasks.length}</div>
+              <div className="text-2xl font-black text-rose-600 dark:text-rose-400 leading-none">{overdueTasks.length}</div>
               <div className="text-xs text-muted-foreground font-medium mt-1">Công việc quá hạn</div>
             </div>
           </div>
-        </div>
+        </button>
 
         {/* Card 4: Dự án / Chiến dịch */}
-        <div
+        <button type="button"
           onClick={() => setActiveTab('du_an')}
-          className="bg-card rounded-2xl p-4 sm:p-5 border border-border shadow-xs hover:shadow-md transition-all cursor-pointer group"
+          className="bg-white dark:bg-card rounded-2xl p-4 sm:p-5 border border-border shadow-xs hover:shadow-md transition-all cursor-pointer group text-left"
         >
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-2xl bg-accent text-accent-foreground flex items-center justify-center group-hover:scale-110 transition-transform">
+          <div className="flex items-center gap-3.5">
+            <div className="w-12 h-12 rounded-2xl bg-purple-50 dark:bg-purple-950/50 text-purple-600 dark:text-purple-400 flex items-center justify-center group-hover:scale-105 transition-transform shadow-2xs">
               <Target className="w-6 h-6" />
             </div>
             <div>
               <div className="text-2xl font-black text-foreground leading-none">{campaigns.length}</div>
-              <div className="text-xs text-muted-foreground font-medium mt-1">Dự án / Mảng việc</div>
+              <div className="text-xs text-muted-foreground font-medium mt-1">Dự án / Chiến dịch</div>
             </div>
           </div>
-        </div>
+        </button>
       </div>
 
       {/* 4. KHU VỰC BỐ CỤC 2 CỘT CHÍNH */}
@@ -297,7 +283,7 @@ export default function DashboardView() {
         {/* CỘT TRÁI (RỘNG): Bảng Công việc gần đây */}
         <div className="xl:col-span-2 space-y-6">
           <div className="bg-card rounded-3xl border border-border p-5 sm:p-6 shadow-xs text-card-foreground">
-            <div className="flex items-center justify-between mb-5">
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
               <div>
                 <h3 className="text-base font-bold text-foreground tracking-tight">Công việc gần đây</h3>
                 <p className="text-xs text-muted-foreground">Các nhiệm vụ trọng tâm đang được BTV triển khai</p>
@@ -320,12 +306,13 @@ export default function DashboardView() {
               </div>
             </div>
 
-            {/* Bảng danh sách trên Desktop */}
+            {/* Bảng danh sách trên Desktop (Khớp 100% hình 02-dashboard-overview.png) */}
             <div className="hidden sm:block overflow-x-auto">
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="border-b border-border text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
-                    <th className="pb-3 pl-2">Tên công việc</th>
+                    <th className="pb-3 pl-2 w-8">#</th>
+                    <th className="pb-3">Tên công việc</th>
                     <th className="pb-3">Người phụ trách</th>
                     <th className="pb-3">Hạn hoàn thành</th>
                     <th className="pb-3 text-right pr-2">Trạng thái</th>
@@ -334,12 +321,12 @@ export default function DashboardView() {
                 <tbody className="divide-y divide-border text-xs">
                   {recentTasks.length === 0 ? (
                     <tr>
-                      <td colSpan={4} className="py-8 text-center text-muted-foreground">
+                      <td colSpan={5} className="py-8 text-center text-muted-foreground">
                         Chưa có công việc nào. Hãy bấm <b>+ Giao việc mới</b> ở trên để tạo nhiệm vụ đầu tiên!
                       </td>
                     </tr>
                   ) : (
-                    recentTasks.map((t) => {
+                    recentTasks.map((t, index) => {
                       const owner = members.find((m) => m.id === t.owner_id);
                       return (
                         <tr
@@ -347,7 +334,11 @@ export default function DashboardView() {
                           onClick={() => setSelectedTaskId(t.id)}
                           className="hover:bg-muted/40 transition-colors cursor-pointer group"
                         >
-                          <td className="py-3.5 pl-2 font-medium text-foreground group-hover:text-primary transition-colors">
+                          <td className="py-3.5 pl-2 font-bold text-muted-foreground w-8">
+                            {index + 1}
+                          </td>
+
+                          <td className="py-3.5 font-semibold text-foreground group-hover:text-primary transition-colors">
                             <div className="flex items-center gap-2.5">
                               <span className={`w-2 h-2 rounded-full shrink-0 ${getPriorityDot(t.priority)}`} />
                               <span className="truncate max-w-xs">{t.title}</span>
@@ -356,17 +347,18 @@ export default function DashboardView() {
 
                           <td className="py-3.5 text-muted-foreground">
                             <div className="flex items-center gap-2">
-                              <img
-                                src={owner?.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100'}
-                                alt={owner?.full_name || 'BTV'}
-                                className="w-6 h-6 rounded-full object-cover ring-1 ring-border"
+                              <AvatarWithFallback
+                                name={owner?.full_name || 'BTV'}
+                                src={owner?.avatar_url}
+                                size={26}
+                                className="ring-1 ring-border"
                               />
                               <span className="font-medium text-foreground truncate">{owner?.full_name || 'Chưa gán'}</span>
                             </div>
                           </td>
 
                           <td className="py-3.5 text-muted-foreground font-mono text-[11px]">
-                            {t.due_at ? format(new Date(t.due_at), 'dd/MM/yyyy') : 'Không hạn'}
+                            {t.due_at ? format(new Date(t.due_at), 'dd/MM/yyyy') : 'Linh hoạt'}
                           </td>
 
                           <td className="py-3.5 text-right pr-2">{getStatusBadge(t)}</td>
@@ -405,10 +397,11 @@ export default function DashboardView() {
 
                       <div className="flex items-center justify-between text-[11px] text-muted-foreground pt-0.5">
                         <div className="flex items-center gap-1.5">
-                          <img
-                            src={owner?.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100'}
-                            alt={owner?.full_name || 'BTV'}
-                            className="w-5 h-5 rounded-full object-cover ring-1 ring-border"
+                          <AvatarWithFallback
+                            name={owner?.full_name || 'BTV'}
+                            src={owner?.avatar_url}
+                            size={22}
+                            className="ring-1 ring-border"
                           />
                           <span className="font-medium text-foreground truncate max-w-[120px]">
                             {owner?.full_name || 'Chưa gán'}
@@ -426,27 +419,29 @@ export default function DashboardView() {
           </div>
 
           {/* Lịch trình công việc */}
-          <div className="bg-card rounded-3xl border border-border p-5 sm:p-6 shadow-xs text-card-foreground">
+          <div className="bg-white dark:bg-card rounded-3xl border border-border p-5 sm:p-6 shadow-xs text-card-foreground">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <Clock className="w-4 h-4 text-primary" />
                 <h3 className="text-sm font-bold text-foreground">
-                  Nhiệm vụ trọng tâm trong tuần
+                  Nhiệm vụ cần theo dõi
                 </h3>
               </div>
               <span className="text-[11px] font-semibold text-primary bg-primary/10 px-2.5 py-0.5 rounded-full">
-                {tasks.filter((t) => t.status !== 'hoan_thanh').length} công việc
+                {upcomingTasks.length} công việc
               </span>
             </div>
 
             <div className="space-y-2.5">
-              {tasks.slice(0, 4).map((t) => (
+              {upcomingTasks.length === 0 && <p className="py-4 text-xs text-muted-foreground">Không có công việc đang chờ xử lý.</p>}
+              {upcomingTasks.slice(0, 4).map((t) => (
                 <div
                   key={t.id}
-                  className="flex items-center justify-between p-3 rounded-2xl bg-muted/40 hover:bg-muted/70 transition-colors border border-border"
+                  className="flex items-center justify-between p-3 rounded-2xl bg-slate-50 dark:bg-muted/40 hover:bg-muted/70 transition-colors border border-border"
                 >
                   <div className="flex items-center gap-3">
                     <button
+                      aria-label={`Cập nhật trạng thái: ${t.title}`}
                       onClick={() => updateTaskStatus(t.id, t.status === 'hoan_thanh' ? 'dang_lam' : 'hoan_thanh')}
                       className="text-muted-foreground hover:text-primary transition-colors"
                     >
@@ -459,7 +454,7 @@ export default function DashboardView() {
                     <div>
                       <h4 className="text-xs font-semibold text-foreground">{t.title}</h4>
                       <span className="text-[10px] text-muted-foreground">
-                        {t.due_at ? format(new Date(t.due_at), 'HH:mm - dd/MM') : 'Linh hoạt'} • Phòng họp BTV
+                        {t.due_at ? format(new Date(t.due_at), 'HH:mm - dd/MM') : 'Linh hoạt'}
                       </span>
                     </div>
                   </div>
@@ -477,44 +472,7 @@ export default function DashboardView() {
 
         {/* CỘT PHẢI (HẸP): Lịch tháng + Thông báo + Thành viên */}
         <div className="space-y-6">
-          {/* Widget Lịch tháng tương tác */}
-          <div className="bg-card rounded-3xl border border-border p-5 shadow-xs text-card-foreground">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-bold text-foreground">Lịch làm việc</h3>
-              <div className="flex items-center gap-1 text-xs text-foreground font-semibold">
-                <span>Tháng {now.getMonth() + 1}/{now.getFullYear()}</span>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-7 gap-1 text-center text-[10px] font-medium text-muted-foreground mb-2">
-              <span>T2</span>
-              <span>T3</span>
-              <span>T4</span>
-              <span>T5</span>
-              <span>T6</span>
-              <span>T7</span>
-              <span className="text-destructive font-bold">CN</span>
-            </div>
-
-            <div className="grid grid-cols-7 gap-1 text-center text-xs">
-              {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => {
-                const isSelected = selectedCalendarDay === d;
-                return (
-                  <button
-                    key={d}
-                    onClick={() => setSelectedCalendarDay(d)}
-                    className={`p-1.5 rounded-lg transition-all ${
-                      isSelected
-                        ? 'bg-primary text-primary-foreground font-bold shadow-xs'
-                        : 'text-foreground hover:bg-muted'
-                    }`}
-                  >
-                    {d}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+          <DashboardCalendar />
 
           {/* Widget Thông báo */}
           <div className="bg-card rounded-3xl border border-border p-5 shadow-xs text-card-foreground">
@@ -583,6 +541,7 @@ export default function DashboardView() {
           </div>
         </div>
       </div>
+      <EventCountdown />
     </div>
   );
 }

@@ -141,7 +141,7 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
               <button
                 onClick={handleGoogleLogin}
                 disabled={loading}
-                className="w-full py-3.5 px-4 rounded-2xl bg-white hover:bg-gray-50 text-gray-800 border border-gray-300 font-bold text-xs flex items-center justify-center gap-3 transition-all shadow-sm hover:shadow-md active:scale-[0.99]"
+                className="w-full py-3.5 px-4 rounded-2xl bg-card hover:bg-muted text-foreground border border-border font-bold text-xs flex items-center justify-center gap-3 transition-all shadow-sm hover:shadow-md active:scale-[0.99]"
               >
                 {/* Google Logo SVG */}
                 <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">

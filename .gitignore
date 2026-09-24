@@ -43,3 +43,6 @@ next-env.d.ts
 # private notes
 cấu hình.txt
 *.local.txt
+
+.vercel
+.env*

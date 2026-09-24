@@ -1,12 +1,13 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap');
 @import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
 
 :root {
   /* ==============================================================================
      HCMUTE DESIGN SYSTEM — OKLCH COLOR SYSTEM (LIGHT THEME)
      ============================================================================== */
   /* 1.1 Primary Palette */
-  --primary: oklch(0.5505 0.2485 262.5896);
+  --primary: #0B5CFF;
   --primary-foreground: oklch(0.9801 0.0096 252.8096);
   --secondary: oklch(0.9404 0.0197 245.6429);
   --secondary-foreground: oklch(0.2993 0.0609 251.2891);
@@ -16,13 +17,13 @@
   --destructive-foreground: oklch(0.9801 0.0096 252.8096);
 
   /* 1.2 Neutral Palette */
-  --background: oklch(100% 0.00011 271.152);
-  --foreground: rgb(0, 71, 118); /* HCMUTE Deep Brand Navy Blue */
+  --background: #F8FAFC;
+  --foreground: #0F2D73; /* HCMUTE Deep Brand Navy Blue */
   --muted: oklch(0.9205 0.0146 244.7261);
-  --muted-foreground: oklch(38.082% 0.08041 252.8);
+  --muted-foreground: #60739A;
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.2602 0.0703 254.8723);
-  --border: oklch(0.93 0.03 264);
+  --border: #E3ECFA;
   --input: oklch(91.513% 0.00323 15.446);
   --ring: oklch(0.632 0.1979 260.8448);
 
@@ -33,7 +34,7 @@
   --chart-4: oklch(0.7064 0.1822 151.7125);
   --chart-5: oklch(0.5919 0.2186 10.5826);
 
-  /* 1.4 Gradients */
+  /* 1.4 Named Color Stops (Gradient Reference) */
   --color-1: oklch(66.2% 0.225 25.9);
   --color-2: oklch(60.4% 0.26 302);
   --color-3: oklch(69.6% 0.165 251);
@@ -52,12 +53,17 @@
   --site-px: 1.25rem;
   --site-px-lg: 1.5rem;
   --topbar-h: 48px;
-  --header-h: 72px;
+  --header-h: 64px;
 
-  /* 6. Shadows */
-  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  /* 6. Shadow System */
+  --shadow-2xs: 0 1px 2px 0 rgb(0 0 0 / 0.03);
+  --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.08), 0 1px 2px -1px rgb(0 0 0 / 0.08);
+  --shadow: 0 2px 4px -1px rgb(0 0 0 / 0.08), 0 1px 2px -1px rgb(0 0 0 / 0.08);
   --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
   --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+  --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+  --shadow-2xl: 0 25px 50px -12px rgb(0 0 0 / 0.25);
   --shadow-badge: 0 0 0 1px rgb(0 71 118 / 0.08), 0 1px 2px -0.5px rgb(0 71 118 / 0.12), 0 2px 4px -2px rgb(0 71 118 / 0.1);
 }
 
@@ -83,6 +89,8 @@
   --border: oklch(0.2991 0.0399 250.6425);
   --input: oklch(0.2707 0.0499 250.1517);
   --ring: oklch(0.6633 0.1802 257.7933);
+
+  --shadow-badge: 0 0 0 1px rgb(255 255 255 / 0.1), 0 1px 2px -0.5px rgb(255 255 255 / 0.15), 0 2px 4px -2px rgb(255 255 255 / 0.1);
 }
 
 @theme inline {
@@ -113,6 +121,103 @@
   --font-sans: var(--font-sans);
   --font-serif: var(--font-serif);
   --font-mono: var(--font-mono);
+
+  --shadow-2xs: var(--shadow-2xs);
+  --shadow-xs: var(--shadow-xs);
+  --shadow-sm: var(--shadow-sm);
+  --shadow: var(--shadow);
+  --shadow-md: var(--shadow-md);
+  --shadow-lg: var(--shadow-lg);
+  --shadow-xl: var(--shadow-xl);
+  --shadow-2xl: var(--shadow-2xl);
+  --shadow-badge: var(--shadow-badge);
+
+  --animate-shine: shine 3s ease-out infinite;
+  --animate-gradient-flow: gradientFlow 10s ease 0s infinite;
+  --animate-btn-shimmer: btn-shimmer 0.6s ease-in-out;
+  --animate-line-shadow: line-shadow 15s linear infinite;
+  --animate-aurora: aurora 8s ease-in-out infinite alternate;
+  --animate-marquee: marquee var(--duration, 20s) infinite linear;
+  --animate-marquee-vertical: marquee-vertical var(--duration, 20s) linear infinite;
+  --animate-shimmer-slide: shimmer-slide var(--speed, 3s) ease-in-out infinite alternate;
+  --animate-spin-around: spin-around calc(var(--speed, 2s) * 2) infinite linear;
+  --animate-shiny-text: shiny-text 8s infinite;
+  --animate-blink-cursor: blink-cursor 1.2s step-end infinite;
+  --animate-rainbow: rainbow var(--speed, 2s) infinite linear;
+  --animate-dash-flow: dash-flow 0.5s linear infinite;
+  --animate-cta-shimmer: cta-shimmer 2s ease-in-out infinite;
+}
+
+/* ==============================================================================
+   SECTION 8.1 — ANIMATION KEYFRAMES
+   ============================================================================== */
+@keyframes shine {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@keyframes gradientFlow {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+@keyframes btn-shimmer {
+  0% { background-position: 0 0; }
+  100% { background-position: 100% 100%; }
+}
+
+@keyframes line-shadow {
+  0% { background-position: 0 0; }
+  100% { background-position: 100% 100%; }
+}
+
+@keyframes aurora {
+  from { background-position: 50% 50%, 50% 50%; }
+  to { background-position: 350% 50%, 350% 50%; }
+}
+
+@keyframes marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(calc(-100% - var(--gap, 1rem))); }
+}
+
+@keyframes marquee-vertical {
+  from { transform: translateY(0); }
+  to { transform: translateY(calc(-100% - var(--gap, 1rem))); }
+}
+
+@keyframes shimmer-slide {
+  to { transform: translate(calc(100cqw - 100%), 0); }
+}
+
+@keyframes spin-around {
+  0% { transform: translateZ(0) rotate(0); }
+  100% { transform: translateZ(0) rotate(360deg); }
+}
+
+@keyframes shiny-text {
+  0%, 90%, 100% { background-position: calc(-100% - var(--shiny-width, 100px)) 0; }
+  30%, 60% { background-position: calc(100% + var(--shiny-width, 100px)) 0; }
+}
+
+@keyframes blink-cursor {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+@keyframes rainbow {
+  0% { background-position: 0%; }
+  100% { background-position: 200%; }
+}
+
+@keyframes dash-flow {
+  to { stroke-dashoffset: -20; }
+}
+
+@keyframes cta-shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(200%); }
 }
 
 body {
@@ -135,11 +240,96 @@ button, a, [role="button"] {
 
 /* ==============================================================================
    SECTION 2.4 — FIX FOR VIETNAMESE DIACRITICS CLIPPING
-   All inputs, textareas, selects automatically have line-height: 2.05
+   Comfortable input line height without overriding component sizing
    ============================================================================== */
 input, textarea, select {
-  line-height: 2.05 !important;
-  overflow: visible !important;
+  line-height: 1.6;
+}
+
+/* ==============================================================================
+   SECTION 4.2 — VERTICAL SIDE BORDERS (FIXED POSITION)
+   Creates visual frame at content boundaries
+   ============================================================================== */
+@media (min-width: 80rem) {
+  .page-border-x::before,
+  .page-border-x::after {
+    content: "";
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background-color: var(--border);
+    pointer-events: none;
+    z-index: 40;
+  }
+  .page-border-x::before {
+    left: calc((100vw - var(--site-width)) / 2);
+  }
+  .page-border-x::after {
+    right: calc((100vw - var(--site-width)) / 2);
+  }
+}
+
+.page-border-x-light {
+  position: relative;
+}
+@media (min-width: 80rem) {
+  .page-border-x-light::before,
+  .page-border-x-light::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background-color: rgba(255, 255, 255, 0.15);
+    pointer-events: none;
+    z-index: 10;
+  }
+  .page-border-x-light::before {
+    left: calc((100% - var(--site-width)) / 2);
+  }
+  .page-border-x-light::after {
+    right: calc((100% - var(--site-width)) / 2);
+  }
+}
+
+.page-border-x-dark {
+  position: relative;
+}
+@media (min-width: 80rem) {
+  .page-border-x-dark::before,
+  .page-border-x-dark::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background-color: var(--border);
+    pointer-events: none;
+    z-index: 10;
+  }
+  .page-border-x-dark::before {
+    left: calc((100% - var(--site-width)) / 2);
+  }
+  .page-border-x-dark::after {
+    right: calc((100% - var(--site-width)) / 2);
+  }
+}
+
+/* ==============================================================================
+   SECTION 7.1 — HERO CAROUSEL SAFE-AREA RATIOS
+   Guarantees zero crop on all devices
+   ============================================================================== */
+.hero-carousel-height {
+  width: 100%;
+  aspect-ratio: 3 / 4;  /* Mobile */
+  height: auto;
+}
+
+@media (min-width: 768px) {
+  .hero-carousel-height {
+    aspect-ratio: 2.4 / 1;  /* Desktop */
+  }
 }
 
 /* Tinh chỉnh thanh cuộn */
@@ -175,3 +365,68 @@ input, textarea, select {
   padding-top: max(env(safe-area-inset-top, 0px), 0.5rem);
 }
 
+/* Shared application surfaces, based on the HCMUTE reference screens. */
+.app-shell { background: radial-gradient(ellipse at top left, #d7edff, transparent 55%), #edf5ff; }
+.brand-banner { flex-shrink: 0; background: #e5f5ff; overflow: hidden; }
+.brand-banner-image { display: block; width: 100%; height: auto; }
+.app-frame { padding: 10px; gap: 10px; }
+.app-sidebar { border-radius: 18px; background: linear-gradient(160deg, #1257a6 0%, #0f2d73 42%, #073c88 100%); box-shadow: 0 8px 24px #0f2d731a; }
+.app-sidebar > nav { padding-top: 12px; }
+.app-sidebar nav button { font-size: 12px; min-height: 39px; border-radius: 10px; }
+.app-sidebar nav button[aria-current="page"] { background: linear-gradient(110deg, #148aff, #0b5cff); box-shadow: 0 4px 12px #001b5733; }
+.app-workspace { border-radius: 18px; background: #f3f8ff; border: 1px solid #ffffff; }
+.app-workspace > header { flex-shrink: 0; }
+.app-main { scroll-behavior: smooth; }
+.view-content > div { padding-bottom: 8px; }
+.view-content h2 { font-weight: 700; letter-spacing: -.025em; }
+.view-content h3 { line-height: 1.5; }
+.view-content :is(.rounded-3xl) { border-radius: 18px; }
+.view-content table { font-size: 12px; }
+.view-content thead { background: #f1f6ff; }
+.view-content th { padding: 12px 10px; color: #5d729d; font-size: 10px; font-weight: 600; letter-spacing: .035em; white-space: nowrap; }
+.view-content td { padding-left: 10px; padding-right: 10px; }
+.view-content tbody tr { border-color: #edf2fb; }
+.view-content tbody tr:hover { background: #f5f9ff; }
+.dashboard-hero { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(180px, 1fr) minmax(170px, .7fr); gap: 20px; align-items: center; padding: 24px; min-height: 170px; border: 1px solid var(--border); border-radius: 18px; overflow: hidden; background: linear-gradient(110deg, #fff 15%, #e4f3ff 70%, #f8fcff); }
+.dashboard-hero h1 { font-size: clamp(20px, 1.7vw, 27px); font-weight: 700; line-height: 1.4; }
+.dashboard-hero p { font-size: 13px; line-height: 1.7; }
+.dashboard-campus { width: 100%; height: 145px; object-fit: cover; border-radius: 12px; mask-image: linear-gradient(90deg, transparent, black 15%, black 90%, transparent); }
+.dashboard-quote { font-family: Georgia, serif; font-size: 16px; line-height: 1.7; font-style: italic; color: var(--primary); }
+.dashboard-quote cite { display: block; font-family: var(--font-sans); font-size: 10px; margin-top: 8px; font-style: normal; color: var(--muted-foreground); }
+.skip-link { position: fixed; top: -100px; left: 16px; z-index: 100; padding: 12px 18px; background: var(--card); border: 2px solid var(--primary); border-radius: 10px; }
+.skip-link:focus { top: 12px; }
+:where(button, a, input, textarea, select, [tabindex]):focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
+button:not(:disabled), [role="button"] { cursor: pointer; }
+.dark .app-shell { background: #091426; }
+.dark .app-workspace { background: var(--background); border-color: var(--border); }
+.dark .dashboard-hero { background: linear-gradient(120deg, var(--card), #142a4b); }
+.dark .view-content thead { background: #172a47; }
+.dark .view-content th { color: #a9bddc; }
+.dark .view-content tbody tr { border-color: var(--border); }
+.dark .view-content tbody tr:hover { background: #172a47; }
+@media (min-width: 768px) and (max-width: 1199px) {
+  .app-sidebar { width: 210px; }
+  .dashboard-hero { grid-template-columns: 1.2fr 1fr; }
+  .dashboard-quote { display: none; }
+}
+@media (max-width: 767px) {
+  .brand-banner { height: 54px; }
+  .brand-banner-image { height: 54px; width: auto; max-width: none; }
+  .app-frame { padding: 0; gap: 0; }
+  .app-workspace { border-radius: 0; border: 0; }
+  .app-sidebar { width: 100%; height: 100%; border-radius: 0; }
+  .dashboard-hero { grid-template-columns: 1fr; padding: 20px; gap: 14px; }
+  .dashboard-campus { height: 120px; }
+  .dashboard-quote { display: none; }
+  input, select, textarea { font-size: 16px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+}
+
+.view-content[data-view="chat"] { height: 100%; }
+.chat-layout { height: 100%; min-height: 400px; }
+@media (min-width: 768px) and (max-width: 1399px) { .app-workspace > header > div:last-child > div[title] { display: none; } }
+
+.mobile-navigation { position: fixed; inset: 0 auto 0 0; margin: 0; width: min(85vw, 320px); max-width: none; height: 100dvh; max-height: none; padding: 0; border: 0; background: transparent; }
+.mobile-navigation::backdrop { background: #061b4566; backdrop-filter: blur(3px); }

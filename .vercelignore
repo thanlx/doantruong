@@ -1,0 +1,14 @@
+.git
+.next
+node_modules
+.env*
+.codex
+.agents
+*.local.txt
+cấu hình.txt
+*.log
+*.tsbuildinfo
+hcmute-ui-components
+AGENTS.md
+CLAUDE.md
+v2DESIGN-GUIDE.md

@@ -28,6 +28,22 @@ export function getNotificationPermissionState(): NotificationPermission {
 }
 
 /**
+ * Đăng ký Service Worker
+ */
+export async function registerServiceWorker(): Promise<ServiceWorkerRegistration | null> {
+  if (typeof window === 'undefined' || !('serviceWorker' in navigator)) {
+    return null;
+  }
+  try {
+    const reg = await navigator.serviceWorker.register('/sw.js');
+    return reg;
+  } catch (err) {
+    console.warn('Không thể đăng ký Service Worker:', err);
+    return null;
+  }
+}
+
+/**
  * Yêu cầu người dùng cấp quyền nhận thông báo trên điện thoại/máy tính
  */
 export async function requestNotificationPermission(): Promise<boolean> {
@@ -37,6 +53,9 @@ export async function requestNotificationPermission(): Promise<boolean> {
   }
 
   try {
+    // Đăng ký Service Worker trước
+    await registerServiceWorker();
+
     const permission = await Notification.requestPermission();
     if (permission === 'granted') {
       // Gửi ngay thông báo xác nhận thành công

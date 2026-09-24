@@ -30,6 +30,7 @@ import {
   Search,
 } from 'lucide-react';
 import { Member, MemberRole, Campaign } from '@/types';
+import AvatarWithFallback from '@/components/AvatarWithFallback';
 
 export default function AdminView() {
   const {
@@ -52,7 +53,7 @@ export default function AdminView() {
     setIsCreateCampaignModalOpen,
   } = useApp();
 
-  const [activeAdminTab, setActiveAdminTab] = useState<'members' | 'campaigns' | 'tasks' | 'cleanup'>('members');
+  const [activeAdminTab, setActiveAdminTab] = useState<'members' | 'roles' | 'logs' | 'campaigns' | 'tasks' | 'cleanup'>('members');
 
   // State thêm / sửa thành viên
   const [isAddingMember, setIsAddingMember] = useState(false);
@@ -168,7 +169,7 @@ export default function AdminView() {
   );
 
   return (
-    <div className="space-y-6 pb-16">
+    <div className="space-y-5 pb-6">
       {/* Toast thông báo */}
       {successToast && (
         <div className="fixed bottom-6 right-6 z-50 bg-emerald-600 text-white px-4 py-3 rounded-2xl shadow-xl flex items-center gap-2 text-xs font-bold animate-in slide-in-from-bottom-5">
@@ -184,7 +185,7 @@ export default function AdminView() {
             <ShieldAlert className="w-3.5 h-3.5" />
             <span>Khu vực Quản trị Hệ thống (Admin Portal)</span>
           </div>
-          <h2 className="text-xl sm:text-2xl font-black text-foreground tracking-tight">
+          <h2 className="text-xl sm:text-2xl font-semibold text-foreground tracking-tight">
             Quản trị Tác vụ & Phân quyền BTV
           </h2>
           <p className="text-xs text-muted-foreground">
@@ -211,54 +212,78 @@ export default function AdminView() {
         </div>
       </div>
 
-      {/* Tab Điều hướng Admin */}
+      {/* Tab Điều hướng Admin theo thiết kế 11-admin-permissions.png */}
       <div className="flex items-center gap-2 border-b border-border pb-2 overflow-x-auto scrollbar-none snap-x -mx-1 px-1 text-xs">
         <button
           onClick={() => setActiveAdminTab('members')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl font-bold transition-all whitespace-nowrap ${
+          className={`flex items-center gap-2 px-3.5 py-2 rounded-full font-bold transition-all whitespace-nowrap ${
             activeAdminTab === 'members'
-              ? 'bg-primary text-primary-foreground shadow-xs'
-              : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+              ? 'bg-[#EBF2FF] text-[#0B5CFF] border border-[#BFDBFE] shadow-2xs'
+              : 'text-muted-foreground hover:text-foreground bg-card border border-border/70'
           }`}
         >
-          <Users className="w-4 h-4" />
-          <span>Thành viên & Phân quyền ({members.length})</span>
+          <Users className="w-3.5 h-3.5" />
+          <span>Thành viên ({members.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveAdminTab('roles')}
+          className={`flex items-center gap-2 px-3.5 py-2 rounded-full font-bold transition-all whitespace-nowrap ${
+            activeAdminTab === 'roles'
+              ? 'bg-[#EBF2FF] text-[#0B5CFF] border border-[#BFDBFE] shadow-2xs'
+              : 'text-muted-foreground hover:text-foreground bg-card border border-border/70'
+          }`}
+        >
+          <ShieldCheck className="w-3.5 h-3.5" />
+          <span>Vai trò & Phân quyền</span>
+        </button>
+
+        <button
+          onClick={() => setActiveAdminTab('logs')}
+          className={`flex items-center gap-2 px-3.5 py-2 rounded-full font-bold transition-all whitespace-nowrap ${
+            activeAdminTab === 'logs'
+              ? 'bg-[#EBF2FF] text-[#0B5CFF] border border-[#BFDBFE] shadow-2xs'
+              : 'text-muted-foreground hover:text-foreground bg-card border border-border/70'
+          }`}
+        >
+          <Calendar className="w-3.5 h-3.5" />
+          <span>Nhật ký hoạt động</span>
         </button>
 
         <button
           onClick={() => setActiveAdminTab('campaigns')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl font-bold transition-all whitespace-nowrap ${
+          className={`flex items-center gap-2 px-3.5 py-2 rounded-full font-bold transition-all whitespace-nowrap ${
             activeAdminTab === 'campaigns'
-              ? 'bg-primary text-primary-foreground shadow-xs'
-              : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+              ? 'bg-[#EBF2FF] text-[#0B5CFF] border border-[#BFDBFE] shadow-2xs'
+              : 'text-muted-foreground hover:text-foreground bg-card border border-border/70'
           }`}
         >
-          <FolderGit2 className="w-4 h-4" />
-          <span>Mục lục Mảng việc & Dự án ({campaigns.length})</span>
+          <FolderGit2 className="w-3.5 h-3.5" />
+          <span>Mảng việc & Dự án ({campaigns.length})</span>
         </button>
 
         <button
           onClick={() => setActiveAdminTab('tasks')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl font-bold transition-all whitespace-nowrap ${
+          className={`flex items-center gap-2 px-3.5 py-2 rounded-full font-bold transition-all whitespace-nowrap ${
             activeAdminTab === 'tasks'
-              ? 'bg-primary text-primary-foreground shadow-xs'
-              : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+              ? 'bg-[#EBF2FF] text-[#0B5CFF] border border-[#BFDBFE] shadow-2xs'
+              : 'text-muted-foreground hover:text-foreground bg-card border border-border/70'
           }`}
         >
-          <ListTodo className="w-4 h-4" />
-          <span>Quản lý Tất cả Công việc ({tasks.length})</span>
+          <ListTodo className="w-3.5 h-3.5" />
+          <span>Tất cả Công việc ({tasks.length})</span>
         </button>
 
         <button
           onClick={() => setActiveAdminTab('cleanup')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl font-bold transition-all whitespace-nowrap ${
+          className={`flex items-center gap-2 px-3.5 py-2 rounded-full font-bold transition-all whitespace-nowrap ${
             activeAdminTab === 'cleanup'
-              ? 'bg-destructive text-destructive-foreground shadow-xs'
-              : 'text-destructive hover:bg-destructive/10'
+              ? 'bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA] shadow-2xs'
+              : 'text-[#DC2626] hover:bg-[#FEF2F2] bg-card border border-rose-200'
           }`}
         >
-          <Trash2 className="w-4 h-4" />
-          <span>Dọn dẹp & Xóa Danh sách Ảo {dummyTasksCount > 0 && `(${dummyTasksCount})`}</span>
+          <Trash2 className="w-3.5 h-3.5" />
+          <span>Dọn dẹp ảo {dummyTasksCount > 0 && `(${dummyTasksCount})`}</span>
         </button>
       </div>
 
@@ -383,110 +408,115 @@ export default function AdminView() {
             </form>
           )}
 
-          {/* Bảng Danh sách Thành viên */}
+          {/* Bảng Danh sách Thành viên chuẩn thiết kế 11-admin-permissions.png */}
           <div className="bg-card rounded-3xl border border-border overflow-hidden shadow-xs">
             {/* Desktop Table */}
             <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
-                  <tr className="bg-muted/50 border-b border-border text-[11px] font-bold text-muted-foreground uppercase">
-                    <th className="py-3 px-4">Đồng chí</th>
-                    <th className="py-3 px-3">Vai trò chức danh</th>
-                    <th className="py-3 px-3">Mảng phụ trách</th>
-                    <th className="py-3 px-3">Liên hệ</th>
-                    <th className="py-3 px-3">Trạng thái</th>
-                    <th className="py-3 px-4 text-right">Thao tác</th>
+                  <tr className="bg-muted/50 border-b border-border text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
+                    <th className="py-3.5 px-3 text-center w-12">#</th>
+                    <th className="py-3.5 px-4 min-w-[220px]">Họ và tên</th>
+                    <th className="py-3.5 px-3 min-w-[160px]">Vai trò / Chức danh</th>
+                    <th className="py-3.5 px-3 min-w-[170px]">Đơn vị / Ban chuyên môn</th>
+                    <th className="py-3.5 px-3 min-w-[130px]">Trạng thái</th>
+                    <th className="py-3.5 px-4 text-center w-28">Thao tác</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {members.map((m) => (
-                    <tr key={m.id} className="hover:bg-muted/30 transition-colors">
-                      <td className="py-3 px-4">
-                        <div className="flex items-center gap-3">
-                          <img
-                            src={m.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100'}
-                            alt={m.full_name}
-                            className="w-9 h-9 rounded-full object-cover ring-1 ring-border shrink-0"
-                          />
-                          <div>
-                            <div className="font-bold text-foreground">{m.full_name}</div>
-                            <div className="text-[10px] text-muted-foreground font-mono">{m.email}</div>
+                  {members.map((m, idx) => {
+                    const deptLabel =
+                      m.role === 'bi_thu' || m.role === 'pho_bi_thu'
+                        ? 'Thường trực Đoàn trường'
+                        : m.role === 'chanh_van_phong'
+                        ? 'Văn phòng Đoàn trường'
+                        : m.mang_phu_trach === 'tuyen_giao'
+                        ? 'Ban Tuyên giáo – Truyền thông'
+                        : m.mang_phu_trach === 'to_chuc'
+                        ? 'Ban Tổ chức – Kiểm tra'
+                        : m.mang_phu_trach === 'phong_trao'
+                        ? 'Ban Phong trào – Tình nguyện'
+                        : 'Ban Chuyên môn';
+
+                    return (
+                      <tr key={m.id} className="hover:bg-muted/30 transition-colors">
+                        <td className="py-3.5 px-3 text-center font-bold text-muted-foreground font-mono">
+                          {idx + 1}
+                        </td>
+
+                        <td className="py-3.5 px-4">
+                          <div className="flex items-center gap-3">
+                            <AvatarWithFallback
+                              src={m.avatar_url}
+                              name={m.full_name}
+                              className="w-9 h-9 rounded-full ring-1 ring-border shrink-0"
+                            />
+                            <div>
+                              <div className="font-bold text-foreground text-xs">{m.full_name}</div>
+                              <div className="text-[10px] text-muted-foreground font-mono">{m.email}</div>
+                            </div>
                           </div>
-                        </div>
-                      </td>
+                        </td>
 
-                      <td className="py-3 px-3">
-                        <span
-                          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                            m.role === 'bi_thu'
-                              ? 'bg-destructive/10 text-destructive border border-destructive/20'
+                        <td className="py-3.5 px-3">
+                          <span
+                            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                              m.role === 'bi_thu'
+                                ? 'bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA]'
+                                : m.role === 'pho_bi_thu'
+                                ? 'bg-[#EBF2FF] text-[#0B5CFF] border border-[#BFDBFE]'
+                                : m.role === 'chanh_van_phong'
+                                ? 'bg-[#FFFBEB] text-[#D97706] border border-[#FDE68A]'
+                                : 'bg-[#F1F5F9] text-[#475569] border border-[#CBD5E1]'
+                            }`}
+                          >
+                            {m.role === 'bi_thu'
+                              ? 'Bí thư Đoàn trường'
                               : m.role === 'pho_bi_thu'
-                              ? 'bg-primary/10 text-primary border border-primary/20'
+                              ? 'Phó Bí thư'
                               : m.role === 'chanh_van_phong'
-                              ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20'
-                              : 'bg-muted text-muted-foreground border border-border'
-                          }`}
-                        >
-                          {m.role === 'bi_thu'
-                            ? 'Bí thư'
-                            : m.role === 'pho_bi_thu'
-                            ? 'Phó Bí thư'
-                            : m.role === 'chanh_van_phong'
-                            ? 'Chánh văn phòng'
-                            : 'Ủy viên BTV'}
-                        </span>
-                      </td>
-
-                      <td className="py-3 px-3">
-                        <span className="font-medium text-foreground capitalize">
-                          {m.mang_phu_trach ? m.mang_phu_trach.replace('_', ' ') : 'Chung'}
-                        </span>
-                      </td>
-
-                      <td className="py-3 px-3 text-muted-foreground">
-                        <div className="flex items-center gap-1.5 text-[11px]">
-                          <Phone className="w-3 h-3" />
-                          <span>{m.phone || 'Chưa cập nhật'}</span>
-                        </div>
-                      </td>
-
-                      <td className="py-3 px-3">
-                        {m.busy_from && m.busy_to ? (
-                          <span className="text-[10px] font-bold text-amber-600 bg-amber-500/10 px-2 py-0.5 rounded-full">
-                            Bận ({m.busy_reason || 'Công tác'})
+                              ? 'Chánh văn phòng'
+                              : 'Ủy viên BTV'}
                           </span>
-                        ) : (
-                          <span className="text-[10px] font-bold text-emerald-600 bg-emerald-500/10 px-2 py-0.5 rounded-full">
-                            Sẵn sàng nhận việc
-                          </span>
-                        )}
-                      </td>
+                        </td>
 
-                      <td className="py-3 px-4 text-right">
-                        <div className="inline-flex items-center gap-1">
-                          <button
-                            onClick={() => startEditMember(m)}
-                            className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-primary transition-colors"
-                            title="Chỉnh sửa thông tin"
-                          >
-                            <Edit3 className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => {
-                              if (confirm(`Đồng chí có chắc muốn xóa thành viên ${m.full_name}?`)) {
-                                deleteMember(m.id);
-                                showToast(`Đã xóa ${m.full_name} khỏi danh sách BTV.`);
-                              }
-                            }}
-                            className="p-1.5 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
-                            title="Xóa thành viên"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                        <td className="py-3.5 px-3">
+                          <span className="font-medium text-foreground text-xs">{deptLabel}</span>
+                        </td>
+
+                        <td className="py-3.5 px-3">
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-[#ECFDF5] text-[#059669] border border-[#A7F3D0]">
+                            <span className="w-1.5 h-1.5 rounded-full bg-[#10B981]" />
+                            <span>Đang hoạt động</span>
+                          </span>
+                        </td>
+
+                        <td className="py-3.5 px-4 text-center">
+                          <div className="inline-flex items-center justify-center gap-1.5">
+                            <button
+                              onClick={() => startEditMember(m)}
+                              className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-[#0B5CFF] transition-colors"
+                              title="Chỉnh sửa thông tin"
+                            >
+                              <Edit3 className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => {
+                                if (confirm(`Đồng chí có chắc muốn xóa thành viên ${m.full_name}?`)) {
+                                  deleteMember(m.id);
+                                  showToast(`Đã xóa ${m.full_name} khỏi danh sách BTV.`);
+                                }
+                              }}
+                              className="p-1.5 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
+                              title="Xóa thành viên"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -497,10 +527,10 @@ export default function AdminView() {
                 <div key={m.id} className="p-4 space-y-3">
                   <div className="flex items-center justify-between gap-3">
                     <div className="flex items-center gap-3">
-                      <img
-                        src={m.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100'}
-                        alt={m.full_name}
-                        className="w-10 h-10 rounded-full object-cover ring-2 ring-border shrink-0"
+                      <AvatarWithFallback
+                        src={m.avatar_url}
+                        name={m.full_name}
+                        className="w-10 h-10 rounded-full ring-2 ring-border shrink-0"
                       />
                       <div>
                         <h4 className="font-bold text-foreground text-xs">{m.full_name}</h4>
@@ -552,39 +582,46 @@ export default function AdminView() {
                         : 'Ủy viên BTV'}
                     </span>
 
-                    <span className="font-medium text-foreground capitalize text-[10px]">
-                      {m.mang_phu_trach ? m.mang_phu_trach.replace('_', ' ') : 'Chung'}
+                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#ECFDF5] text-[#059669]">
+                      <span className="w-1.5 h-1.5 rounded-full bg-[#10B981]" />
+                      <span>Hoạt động</span>
                     </span>
-
-                    {m.phone && (
-                      <a
-                        href={`tel:${m.phone}`}
-                        className="text-primary font-bold text-[11px] flex items-center gap-1 hover:underline"
-                      >
-                        <Phone className="w-3 h-3" />
-                        <span>{m.phone}</span>
-                      </a>
-                    )}
                   </div>
                 </div>
               ))}
             </div>
           </div>
+        </div>
+      )}
 
-          {/* Ma trận phân quyền 4 vai trò */}
-          <div className="bg-card rounded-3xl p-6 border border-border shadow-xs space-y-4">
-            <div className="flex items-center gap-2 pb-3 border-b border-border">
-              <ShieldCheck className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
-              <div>
-                <h4 className="text-sm font-bold text-foreground">Ma trận Phân quyền 4 Vai trò Ban Thường vụ</h4>
-                <p className="text-[11px] text-muted-foreground">Quy định thẩm quyền duyệt việc, đôn đốc và giao việc theo điều lệ</p>
+      {/* ========================================================================= */}
+      {/* TAB: VAI TRÒ & PHÂN QUYỀN (THEO THIẾT KẾ 11-ADMIN-PERMISSIONS.PNG) */}
+      {/* ========================================================================= */}
+      {activeAdminTab === 'roles' && (
+        <div className="space-y-6 animate-in fade-in duration-150">
+          <div className="bg-card rounded-3xl p-6 border border-border shadow-xs space-y-5">
+            <div className="flex items-center justify-between pb-3 border-b border-border">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-5 h-5 text-[#10B981]" />
+                <div>
+                  <h4 className="text-sm sm:text-base font-bold text-foreground">
+                    Ma trận Phân quyền 4 Vai trò Ban Thường vụ
+                  </h4>
+                  <p className="text-xs text-muted-foreground">
+                    Quy định rõ ràng thẩm quyền duyệt việc, đôn đốc, tiếp nhận văn bản và phân công nhiệm vụ
+                  </p>
+                </div>
               </div>
+              <span className="text-xs font-bold px-3 py-1 rounded-full bg-[#ECFDF5] text-[#059669] border border-[#A7F3D0]">
+                Quy chế Ban hành 2026
+              </span>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
-              <div className="p-4 rounded-2xl bg-destructive/5 border border-destructive/20 space-y-2">
-                <div className="font-bold text-destructive flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-destructive" />
+            {/* 4 Card tóm tắt vai trò */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
+              <div className="p-4 rounded-2xl bg-[#FEF2F2] border border-[#FECACA] space-y-2">
+                <div className="font-bold text-[#DC2626] flex items-center gap-1.5 text-xs">
+                  <span className="w-2 h-2 rounded-full bg-[#DC2626]" />
                   <span>Bí thư Đoàn trường</span>
                 </div>
                 <ul className="text-[11px] text-muted-foreground space-y-1 list-disc list-inside">
@@ -595,22 +632,22 @@ export default function AdminView() {
                 </ul>
               </div>
 
-              <div className="p-4 rounded-2xl bg-primary/5 border border-primary/20 space-y-2">
-                <div className="font-bold text-primary flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-primary" />
+              <div className="p-4 rounded-2xl bg-[#EBF2FF] border border-[#BFDBFE] space-y-2">
+                <div className="font-bold text-[#0B5CFF] flex items-center gap-1.5 text-xs">
+                  <span className="w-2 h-2 rounded-full bg-[#0B5CFF]" />
                   <span>Phó Bí thư Đoàn trường</span>
                 </div>
                 <ul className="text-[11px] text-muted-foreground space-y-1 list-disc list-inside">
-                  <li>Chỉ đạo mảng công tác được phân công</li>
+                  <li>Chỉ đạo mảng công tác được giao</li>
                   <li>Duyệt việc chuyên môn & hành chính</li>
                   <li>Giao việc và phân bổ nhiệm vụ</li>
                   <li>Đôn đốc công việc thuộc mảng</li>
                 </ul>
               </div>
 
-              <div className="p-4 rounded-2xl bg-amber-500/5 border border-amber-500/20 space-y-2">
-                <div className="font-bold text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-amber-500" />
+              <div className="p-4 rounded-2xl bg-[#FFFBEB] border border-[#FDE68A] space-y-2">
+                <div className="font-bold text-[#D97706] flex items-center gap-1.5 text-xs">
+                  <span className="w-2 h-2 rounded-full bg-[#D97706]" />
                   <span>Chánh Văn phòng</span>
                 </div>
                 <ul className="text-[11px] text-muted-foreground space-y-1 list-disc list-inside">
@@ -622,9 +659,9 @@ export default function AdminView() {
               </div>
 
               <div className="p-4 rounded-2xl bg-muted/40 border border-border space-y-2">
-                <div className="font-bold text-foreground flex items-center gap-1.5">
+                <div className="font-bold text-foreground flex items-center gap-1.5 text-xs">
                   <span className="w-2 h-2 rounded-full bg-slate-400" />
-                  <span>Ủy viên Ban Thường vụ</span>
+                  <span>Ủy viên BTV</span>
                 </div>
                 <ul className="text-[11px] text-muted-foreground space-y-1 list-disc list-inside">
                   <li>Nhận việc và cập nhật tiến độ</li>
@@ -633,6 +670,187 @@ export default function AdminView() {
                   <li>Tự tạo việc cá nhân để quản lý</li>
                 </ul>
               </div>
+            </div>
+
+            {/* Bảng Ma trận Quyền hạn Chi tiết */}
+            <div className="overflow-x-auto pt-2">
+              <table className="w-full text-left text-xs border border-border rounded-2xl overflow-hidden">
+                <thead>
+                  <tr className="bg-muted/60 border-b border-border text-[11px] font-bold text-muted-foreground uppercase">
+                    <th className="py-3 px-4">Quyền hạn / Chức năng</th>
+                    <th className="py-3 px-3 text-center">Bí thư</th>
+                    <th className="py-3 px-3 text-center">Phó Bí thư</th>
+                    <th className="py-3 px-3 text-center">Chánh VP</th>
+                    <th className="py-3 px-3 text-center">Ủy viên BTV</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  <tr className="hover:bg-muted/20">
+                    <td className="py-3 px-4 font-semibold text-foreground">Xem toàn bộ công việc & báo cáo</td>
+                    <td className="py-3 px-3 text-center text-[#10B981] font-bold">✔</td>
+                    <td className="py-3 px-3 text-center text-[#10B981] font-bold">✔</td>
+                    <td className="py-3 px-3 text-center text-[#10B981] font-bold">✔</td>
+                    <td className="py-3 px-3 text-center text-[#10B981] font-bold">✔</td>
+                  </tr>
+                  <tr className="hover:bg-muted/20">
+                    <td className="py-3 px-4 font-semibold text-foreground">Giao việc & Phân công nhiệm vụ</td>
+                    <td className="py-3 px-3 text-center text-[#10B981] font-bold">✔</td>
+                    <td className="py-3 px-3 text-center text-[#10B981] font-bold">✔</td>
+                    <td className="py-3 px-3 text-center text-[#10B981] font-bold">✔</td>
+                    <td className="py-3 px-3 text-center text-muted-foreground/40">-</td>
+                  </tr>
+                  <tr className="hover:bg-muted/20">
+                    <td className="py-3 px-4 font-semibold text-foreground">Phê duyệt nhiệm vụ Chuyên môn</td>
+                    <td className="py-3 px-3 text-center text-[#10B981] font-bold">✔</td>
+                    <td className="py-3 px-3 text-center text-[#10B981] font-bold">✔</td>
+                    <td className="py-3 px-3 text-center text-muted-foreground/40">-</td>
+                    <td className="py-3 px-3 text-center text-muted-foreground/40">-</td>
+                  </tr>
+                  <tr className="hover:bg-muted/20">
+                    <td className="py-3 px-4 font-semibold text-foreground">Phê duyệt nhiệm vụ Hành chính</td>
+                    <td className="py-3 px-3 text-center text-[#10B981] font-bold">✔</td>
+                    <td className="py-3 px-3 text-center text-[#10B981] font-bold">✔</td>
+                    <td className="py-3 px-3 text-center text-[#10B981] font-bold">✔</td>
+                    <td className="py-3 px-3 text-center text-muted-foreground/40">-</td>
+                  </tr>
+                  <tr className="hover:bg-muted/20">
+                    <td className="py-3 px-4 font-semibold text-foreground">Phát lệnh Đôn đốc công việc khẩn</td>
+                    <td className="py-3 px-3 text-center text-[#10B981] font-bold">✔</td>
+                    <td className="py-3 px-3 text-center text-[#10B981] font-bold">✔</td>
+                    <td className="py-3 px-3 text-center text-[#10B981] font-bold">✔</td>
+                    <td className="py-3 px-3 text-center text-muted-foreground/40">-</td>
+                  </tr>
+                  <tr className="hover:bg-muted/20">
+                    <td className="py-3 px-4 font-semibold text-foreground">Quản trị Thành viên & Hệ thống</td>
+                    <td className="py-3 px-3 text-center text-[#10B981] font-bold">✔</td>
+                    <td className="py-3 px-3 text-center text-muted-foreground/40">-</td>
+                    <td className="py-3 px-3 text-center text-muted-foreground/40">-</td>
+                    <td className="py-3 px-3 text-center text-muted-foreground/40">-</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* TAB: NHẬT KÝ HOẠT ĐỘNG (AUDIT LOG - THEO THIẾT KẾ 11-ADMIN-PERMISSIONS.PNG) */}
+      {/* ========================================================================= */}
+      {activeAdminTab === 'logs' && (
+        <div className="space-y-6 animate-in fade-in duration-150">
+          <div className="bg-card rounded-3xl p-6 border border-border shadow-xs space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-border">
+              <div className="flex items-center gap-2">
+                <Calendar className="w-5 h-5 text-[#0B5CFF]" />
+                <div>
+                  <h4 className="text-sm sm:text-base font-bold text-foreground">
+                    Nhật ký Hoạt động Hệ thống (Audit Log)
+                  </h4>
+                  <p className="text-xs text-muted-foreground">
+                    Ghi lại các thao tác giao việc, duyệt hoàn thành, đôn đốc và cập nhật tiến độ
+                  </p>
+                </div>
+              </div>
+              <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-[#EBF2FF] text-[#0B5CFF] border border-[#BFDBFE]">
+                Tự động ghi nhận
+              </span>
+            </div>
+
+            {/* Bảng Nhật ký hoạt động */}
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="bg-muted/50 border-b border-border text-[11px] font-bold text-muted-foreground uppercase">
+                    <th className="py-3 px-3 min-w-[120px]">Thời gian</th>
+                    <th className="py-3 px-4 min-w-[180px]">Người thực hiện</th>
+                    <th className="py-3 px-3 min-w-[140px]">Hành động</th>
+                    <th className="py-3 px-4 min-w-[260px]">Nội dung tác vụ</th>
+                    <th className="py-3 px-3 text-center min-w-[100px]">Trạng thái</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {[
+                    {
+                      time: '22/09/2026 10:30',
+                      actor: 'Nguyễn Thị Mai',
+                      role: 'Bí thư Đoàn trường',
+                      action: 'Duyệt hoàn thành',
+                      badge: 'bg-[#ECFDF5] text-[#059669] border-[#A7F3D0]',
+                      target: 'Tổ chức Lễ khai mạc Chào Tân sinh viên 2026 (Chấm điểm: 9.5)',
+                      status: 'Thành công',
+                    },
+                    {
+                      time: '22/09/2026 09:15',
+                      actor: 'Trần Minh Quân',
+                      role: 'Chánh Văn phòng',
+                      action: 'Giao việc mới',
+                      badge: 'bg-[#EBF2FF] text-[#0B5CFF] border-[#BFDBFE]',
+                      target: 'Xử lý Công văn 124-KH/ĐTN của Thành Đoàn TP.HCM',
+                      status: 'Thành công',
+                    },
+                    {
+                      time: '22/09/2026 08:00',
+                      actor: 'Lê Xuân Thân',
+                      role: 'Phó Bí thư',
+                      action: 'Phát lệnh đôn đốc',
+                      badge: 'bg-[#FEF2F2] text-[#DC2626] border-[#FECACA]',
+                      target: 'Đôn đốc gửi danh sách sinh viên khen thưởng phong trào',
+                      status: 'Đã gửi Push',
+                    },
+                    {
+                      time: '21/09/2026 16:45',
+                      actor: 'Đặng Thị Thu Trang',
+                      role: 'Ủy viên BTV',
+                      action: 'Nộp duyệt hoàn thành',
+                      badge: 'bg-[#FFFBEB] text-[#D97706] border-[#FDE68A]',
+                      target: 'Kế hoạch truyền thông chuỗi sự kiện Tháng 9/2026',
+                      status: 'Chờ duyệt',
+                    },
+                    {
+                      time: '21/09/2026 14:20',
+                      actor: 'Hoàng Minh Đức',
+                      role: 'Ủy viên BTV',
+                      action: 'Cập nhật tiến độ',
+                      badge: 'bg-[#EBF2FF] text-[#0B5CFF] border-[#BFDBFE]',
+                      target: 'Khảo sát sân khấu & gian hàng Tân sinh viên (80%)',
+                      status: 'Thành công',
+                    },
+                    {
+                      time: '20/09/2026 11:00',
+                      actor: 'Trần Minh Quân',
+                      role: 'Chánh Văn phòng',
+                      action: 'Tiếp nhận văn bản',
+                      badge: 'bg-purple-50 text-purple-600 border-purple-200',
+                      target: 'Tiếp nhận Công văn 45-TB/ĐTN về rà soát hồ sơ đoàn viên',
+                      status: 'Đã lưu sổ',
+                    },
+                  ].map((log, lIdx) => (
+                    <tr key={lIdx} className="hover:bg-muted/30 transition-colors">
+                      <td className="py-3 px-3 font-mono text-[11px] text-muted-foreground">
+                        {log.time}
+                      </td>
+                      <td className="py-3 px-4">
+                        <div className="font-bold text-foreground text-xs">{log.actor}</div>
+                        <div className="text-[10px] text-muted-foreground">{log.role}</div>
+                      </td>
+                      <td className="py-3 px-3">
+                        <span className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${log.badge}`}>
+                          {log.action}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 font-medium text-foreground">
+                        {log.target}
+                      </td>
+                      <td className="py-3 px-3 text-center">
+                        <span className="text-[10px] font-semibold text-emerald-600 bg-emerald-500/10 px-2 py-0.5 rounded-full">
+                          {log.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
         </div>

@@ -19,8 +19,18 @@ import {
   LogIn,
   LogOut,
   Sparkles,
+  Sun,
+  Moon,
+  Palette,
+  UserPlus,
+  AlertTriangle,
+  Clock,
+  Calendar,
+  Check,
 } from 'lucide-react';
 import { isSupabaseConfigured } from '@/lib/supabase';
+import AvatarWithFallback from '@/components/AvatarWithFallback';
+import { formatRole } from '@/lib/formatters';
 
 export default function SettingsView() {
   const {
@@ -33,10 +43,73 @@ export default function SettingsView() {
     isRealtimeLive,
     isSupabaseConnected,
     refreshDataFromSupabase,
+    updateMemberDelegation,
   } = useApp();
 
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  const [isDarkMode, setIsDarkMode] = useState(false);
+
+  // State Ủy quyền & Bàn giao nhiệm vụ
+  const [busyFrom, setBusyFrom] = useState(currentMember.busy_from || '');
+  const [busyTo, setBusyTo] = useState(currentMember.busy_to || '');
+  const [busyReason, setBusyReason] = useState(currentMember.busy_reason || '');
+  const [delegateToId, setDelegateToId] = useState(currentMember.delegate_to_id || '');
+  const [delegationFeedback, setDelegationFeedback] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    setBusyFrom(currentMember.busy_from || '');
+    setBusyTo(currentMember.busy_to || '');
+    setBusyReason(currentMember.busy_reason || '');
+    setDelegateToId(currentMember.delegate_to_id || '');
+  }, [currentMember]);
+
+  const handleSaveDelegation = (e: React.FormEvent) => {
+    e.preventDefault();
+    updateMemberDelegation(currentMember.id, {
+      busy_from: busyFrom || null,
+      busy_to: busyTo || null,
+      busy_reason: busyReason || null,
+      delegate_to_id: delegateToId || null,
+    });
+    setDelegationFeedback('Đã cập nhật thông tin ủy quyền & bàn giao thành công!');
+    setTimeout(() => setDelegationFeedback(null), 4000);
+  };
+
+  const handleCancelDelegation = () => {
+    setBusyFrom('');
+    setBusyTo('');
+    setBusyReason('');
+    setDelegateToId('');
+    updateMemberDelegation(currentMember.id, {
+      busy_from: null,
+      busy_to: null,
+      busy_reason: null,
+      delegate_to_id: null,
+    });
+    setDelegationFeedback('Đã hủy bỏ trạng thái ủy quyền.');
+    setTimeout(() => setDelegationFeedback(null), 4000);
+  };
+
+  React.useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setIsDarkMode(
+        document.documentElement.classList.contains('dark') ||
+        localStorage.getItem('hcmute_theme') === 'dark'
+      );
+    }
+  }, []);
+
+  const handleToggleTheme = (dark: boolean) => {
+    setIsDarkMode(dark);
+    if (dark) {
+      document.documentElement.classList.add('dark');
+      localStorage.setItem('hcmute_theme', 'dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+      localStorage.setItem('hcmute_theme', 'light');
+    }
+  };
 
   const handleManualSync = async () => {
     setIsSyncing(true);
@@ -62,9 +135,9 @@ export default function SettingsView() {
   };
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6 pb-16">
+    <div className="max-w-3xl mx-auto space-y-5 pb-6">
       <div>
-        <h2 className="text-xl sm:text-2xl font-black text-foreground tracking-tight">Cài đặt Hệ thống</h2>
+        <h2 className="text-xl sm:text-2xl font-semibold text-foreground tracking-tight">Cài đặt Hệ thống</h2>
         <p className="text-xs text-muted-foreground">
           Cấu hình môi trường, xác thực Google OAuth và kết nối Supabase Realtime
         </p>
@@ -164,7 +237,189 @@ export default function SettingsView() {
         </div>
       </div>
 
-      {/* 2. CƠ SỞ DỮ LIỆU & REALTIME SUPABASE */}
+      {/* 2. CHẾ ĐỘ GIAO DIỆN & DESIGN SYSTEM (OKLCH) */}
+      <div className="bg-card rounded-3xl p-6 border border-border shadow-xs space-y-4">
+        <div className="flex items-center justify-between pb-3 border-b border-border">
+          <div className="flex items-center gap-2">
+            <Palette className="w-5 h-5 text-primary" />
+            <div>
+              <h3 className="text-sm font-bold text-foreground">Giao diện & Hệ thống Thiết kế (HCMUTE OKLCH)</h3>
+              <p className="text-[11px] text-muted-foreground">Tùy biến chế độ Sáng / Tối và đồng bộ trực tiếp với v2DESIGN-GUIDE</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <button
+            onClick={() => handleToggleTheme(false)}
+            className={`flex items-center justify-between p-4 rounded-2xl border text-left transition-all ${
+              !isDarkMode
+                ? 'border-primary bg-primary/10 font-bold text-primary shadow-xs'
+                : 'border-border hover:bg-muted text-foreground'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-amber-500/15 text-amber-500 flex items-center justify-center">
+                <Sun className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="text-xs font-bold">Giao diện Sáng (Light)</div>
+                <div className="text-[10px] text-muted-foreground">Phông nền chuẩn HCMUTE Navy</div>
+              </div>
+            </div>
+            {!isDarkMode && <CheckCircle2 className="w-4 h-4 text-primary" />}
+          </button>
+
+          <button
+            onClick={() => handleToggleTheme(true)}
+            className={`flex items-center justify-between p-4 rounded-2xl border text-left transition-all ${
+              isDarkMode
+                ? 'border-primary bg-primary/10 font-bold text-primary shadow-xs'
+                : 'border-border hover:bg-muted text-foreground'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-indigo-500/15 text-indigo-400 flex items-center justify-center">
+                <Moon className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="text-xs font-bold">Giao diện Tối (Dark)</div>
+                <div className="text-[10px] text-muted-foreground">Độ tương phản cao, dịu mắt ban đêm</div>
+              </div>
+            </div>
+            {isDarkMode && <CheckCircle2 className="w-4 h-4 text-primary" />}
+          </button>
+        </div>
+
+        <div className="p-3.5 rounded-2xl bg-muted/40 border border-border text-[11px] text-muted-foreground leading-relaxed flex items-center justify-between">
+          <span>Chuẩn màu: <b>OKLCH (Perceptually Uniform)</b> • Tỉ lệ khung: <b>80rem (1280px)</b></span>
+          <span className="px-2 py-0.5 rounded-full bg-primary/15 text-primary font-mono text-[10px] font-bold">
+            v2.0 Design System
+          </span>
+        </div>
+      </div>
+
+      {/* 3. ỦY QUYỀN TẠM THỜI & BÀN GIAO NHIỆM VỤ */}
+      <div className="bg-card rounded-3xl p-6 border border-border shadow-xs space-y-4">
+        <div className="flex items-center justify-between pb-3 border-b border-border">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center">
+              <UserPlus className="w-4 h-4" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-foreground">Ủy quyền tạm thời & Bàn giao nhiệm vụ</h3>
+              <p className="text-[11px] text-muted-foreground">Tự động gợi ý chuyển giao công việc khi đồng chí bận học tập, công tác hoặc nghỉ phép</p>
+            </div>
+          </div>
+
+          {currentMember.busy_from && currentMember.busy_to && (
+            <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30 flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+              <span>Đang bật ủy quyền</span>
+            </span>
+          )}
+        </div>
+
+        {delegationFeedback && (
+          <div className="p-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-xs font-bold flex items-center gap-2">
+            <Check className="w-4 h-4 shrink-0" />
+            <span>{delegationFeedback}</span>
+          </div>
+        )}
+
+        {currentMember.busy_from && currentMember.busy_to && (
+          <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-900 dark:text-amber-200 space-y-1.5">
+            <div className="font-bold flex items-center gap-2 text-amber-800 dark:text-amber-300">
+              <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+              <span>Trạng thái ủy quyền đang có hiệu lực</span>
+            </div>
+            <p className="text-[11px] leading-relaxed">
+              Các văn bản đến và công việc mới được phân công cho đồng chí từ <b>{currentMember.busy_from}</b> đến <b>{currentMember.busy_to}</b> sẽ tự động cảnh báo và đề xuất bàn giao xử lý cho <b>{members.find((m) => m.id === currentMember.delegate_to_id)?.full_name || 'Đồng chí BTV'}</b>.
+            </p>
+          </div>
+        )}
+
+        <form onSubmit={handleSaveDelegation} className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-bold text-foreground block mb-1">
+                Thời gian bắt đầu vắng / bận
+              </label>
+              <input
+                type="date"
+                value={busyFrom}
+                onChange={(e) => setBusyFrom(e.target.value)}
+                className="w-full text-xs p-2.5 rounded-xl border border-input bg-card text-foreground outline-none focus:ring-2 focus:ring-primary font-mono"
+              />
+            </div>
+
+            <div>
+              <label className="text-xs font-bold text-foreground block mb-1">
+                Thời gian kết thúc (Dự kiến)
+              </label>
+              <input
+                type="date"
+                value={busyTo}
+                onChange={(e) => setBusyTo(e.target.value)}
+                className="w-full text-xs p-2.5 rounded-xl border border-input bg-card text-foreground outline-none focus:ring-2 focus:ring-primary font-mono"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs font-bold text-foreground block mb-1">
+              Lý do bận công tác / vắng mặt
+            </label>
+            <input
+              type="text"
+              placeholder="VD: Tham gia học tập cao học, Đi công tác cơ sở, Nghỉ phép..."
+              value={busyReason}
+              onChange={(e) => setBusyReason(e.target.value)}
+              className="w-full text-xs p-2.5 rounded-xl border border-input bg-card text-foreground outline-none focus:ring-2 focus:ring-primary"
+            />
+          </div>
+
+          <div>
+            <label className="text-xs font-bold text-foreground block mb-1">
+              Chỉ định đồng chí BTV nhận bàn giao & xử lý thay
+            </label>
+            <select
+              value={delegateToId}
+              onChange={(e) => setDelegateToId(e.target.value)}
+              className="w-full text-xs p-2.5 rounded-xl border border-input bg-card text-foreground outline-none focus:ring-2 focus:ring-primary"
+            >
+              <option value="">-- Chưa chọn người nhận bàn giao --</option>
+              {members
+                .filter((m) => m.id !== currentMember.id)
+                .map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.full_name} ({formatRole(m.role)})
+                  </option>
+                ))}
+            </select>
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
+            {(currentMember.busy_from || currentMember.delegate_to_id) && (
+              <button
+                type="button"
+                onClick={handleCancelDelegation}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-destructive hover:bg-destructive/10 transition-colors"
+              >
+                Hủy ủy quyền
+              </button>
+            )}
+            <button
+              type="submit"
+              className="px-5 py-2 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-bold shadow-xs active:scale-95 transition-all"
+            >
+              Lưu cấu hình ủy quyền
+            </button>
+          </div>
+        </form>
+      </div>
+
+      {/* 4. CƠ SỞ DỮ LIỆU & REALTIME SUPABASE */}
       <div className="bg-card rounded-3xl p-6 border border-border shadow-xs space-y-4">
         <div className="flex items-center justify-between pb-3 border-b border-border">
           <div className="flex items-center gap-2">
@@ -204,7 +459,7 @@ export default function SettingsView() {
           <div className="p-3.5 rounded-2xl bg-muted/40 border border-border space-y-1">
             <span className="text-[10px] font-bold text-muted-foreground uppercase">Kênh Realtime WebSocket</span>
             <div className="font-bold flex items-center gap-2 text-foreground">
-              <span className={`w-2 h-2 rounded-full ${isRealtimeLive ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />
+              <span className={`w-2 h-2 rounded-full ${isRealtimeLive ? 'bg-emerald-500 animate-pulse' : 'bg-muted-foreground/50'}`} />
               <span>{isRealtimeLive ? 'Đang kết nối Realtime Live' : 'Đang thiết lập WebSocket'}</span>
             </div>
           </div>
@@ -215,7 +470,63 @@ export default function SettingsView() {
         </div>
       </div>
 
-      {/* 3. BỘ CHUYỂN ĐỔI 9 THÀNH VIÊN BTV KIỂM THỬ */}
+      {/* 4. TÍCH HỢP BOT 2 CHIỀU TELEGRAM & ZALO */}
+      <div className="bg-card rounded-3xl p-6 border border-border shadow-xs space-y-4">
+        <div className="flex items-center gap-2 pb-3 border-b border-border">
+          <Sparkles className="w-5 h-5 text-primary" />
+          <div>
+            <h3 className="text-sm font-bold text-foreground">Kết nối Bot 2 chiều (Telegram / Zalo)</h3>
+            <p className="text-[11px] text-muted-foreground">
+              Nhận thông báo công việc tức thời và nộp báo cáo kết quả nhanh từ điện thoại
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Hướng dẫn & Cú pháp */}
+          <div className="space-y-3 text-xs">
+            <div className="p-3 rounded-2xl bg-muted/40 border border-border space-y-1.5">
+              <span className="font-bold text-foreground block">Cú pháp liên kết Bot:</span>
+              <div className="font-mono bg-card p-2 rounded-xl border border-border text-[11px] text-primary select-all">
+                /start btv_{currentMember.id.substring(0, 8)}
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Gửi mã trên đến <b>@HCMUTE_BTV_Bot</b> để kích hoạt nhận thông báo trên Telegram.
+              </p>
+            </div>
+
+            <div className="p-3 rounded-2xl bg-muted/40 border border-border space-y-1.5">
+              <span className="font-bold text-foreground block">Lệnh nộp báo cáo kết quả nhanh:</span>
+              <div className="font-mono bg-card p-2 rounded-xl border border-border text-[11px] text-emerald-600 dark:text-emerald-400 select-all">
+                /nop &lt;mã_công_việc&gt; &lt;link_báo_cáo_hoặc_ghi_chú&gt;
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Ví dụ: <code className="text-primary font-bold">/nop a1111111 https://drive.google.com/...</code>
+              </p>
+            </div>
+          </div>
+
+          {/* Khung mã QR */}
+          <div className="p-4 rounded-2xl bg-muted/30 border border-border flex flex-col items-center justify-center text-center space-y-2.5">
+            <div className="w-36 h-36 bg-white p-2.5 rounded-2xl shadow-xs border border-border flex items-center justify-center">
+              {/* Mã QR hình ảnh hoặc SVG tượng trưng */}
+              <img
+                src={`https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=https://t.me/HCMUTE_BTV_Bot?start=btv_${currentMember.id.substring(0, 8)}`}
+                alt="QR Code Telegram Bot"
+                className="w-full h-full object-contain"
+              />
+            </div>
+            <span className="text-[11px] font-bold text-foreground">
+              Quét mã để mở Telegram Bot
+            </span>
+            <span className="text-[10px] text-muted-foreground">
+              Đồng chí: {currentMember.full_name} ({currentMember.telegram_chat_id ? 'Đã liên kết' : 'Chưa liên kết'})
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* 5. BỘ CHUYỂN ĐỔI 9 THÀNH VIÊN BTV KIỂM THỬ */}
       <div className="bg-card rounded-3xl p-6 border border-border shadow-xs space-y-4">
         <div className="flex items-center gap-2 pb-3 border-b border-border">
           <UserCheck className="w-5 h-5 text-primary" />
@@ -226,7 +537,7 @@ export default function SettingsView() {
         </div>
 
         <p className="text-xs text-muted-foreground">
-          Đang thao tác với tư cách: <b className="text-primary">{currentMember.full_name}</b> ({currentMember.role})
+          Đang thao tác với tư cách: <b className="text-primary">{currentMember.full_name}</b> ({formatRole(currentMember.role)})
         </p>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
@@ -242,15 +553,15 @@ export default function SettingsView() {
                     : 'border-border hover:bg-muted text-foreground'
                 }`}
               >
-                <img
+                <AvatarWithFallback
                   src={m.avatar_url}
-                  alt={m.full_name}
-                  className="w-8 h-8 rounded-full object-cover shrink-0 ring-1 ring-border"
+                  name={m.full_name}
+                  className="w-8 h-8 rounded-full shrink-0 ring-1 ring-border"
                 />
                 <div className="flex-1 min-w-0">
                   <div className="text-xs truncate font-bold">{m.full_name}</div>
                   <div className="text-[10px] text-muted-foreground capitalize">
-                    {m.role.replace('_', ' ')}
+                    {formatRole(m.role)}
                   </div>
                 </div>
               </button>
@@ -259,7 +570,7 @@ export default function SettingsView() {
         </div>
       </div>
 
-      {/* 4. KHÔI PHỤC DỮ LIỆU */}
+      {/* 5. KHÔI PHỤC DỮ LIỆU */}
       <div className="p-4 rounded-2xl bg-destructive/10 border border-destructive/20 flex items-center justify-between">
         <div>
           <h4 className="text-xs font-bold text-destructive">Khôi phục cài đặt & Dữ liệu bộ nhớ tạm</h4>

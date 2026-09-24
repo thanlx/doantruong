@@ -17,6 +17,7 @@ import {
   Briefcase,
   ShieldCheck,
 } from 'lucide-react';
+import AvatarWithFallback from '@/components/AvatarWithFallback';
 
 export default function MembersView() {
   const { members, tasks, currentMember, setCurrentMemberId } = useApp();
@@ -54,13 +55,29 @@ export default function MembersView() {
   const getRoleBadge = (role: string) => {
     switch (role) {
       case 'bi_thu':
-        return <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-destructive/10 text-destructive border border-destructive/20">Bí thư Đoàn trường</span>;
+        return (
+          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA]">
+            Bí thư Đoàn trường
+          </span>
+        );
       case 'pho_bi_thu':
-        return <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-primary/10 text-primary border border-primary/20">Phó Bí thư • Trưởng phòng</span>;
+        return (
+          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-[#EBF2FF] text-[#0B5CFF] border border-[#BFDBFE]">
+            Phó Bí thư
+          </span>
+        );
       case 'chanh_van_phong':
-        return <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">Chánh văn phòng</span>;
+        return (
+          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-[#FFFBEB] text-[#D97706] border border-[#FDE68A]">
+            Chánh văn phòng
+          </span>
+        );
       default:
-        return <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-muted text-muted-foreground border border-border">Ủy viên BTV</span>;
+        return (
+          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-[#F1F5F9] text-[#475569] border border-[#CBD5E1]">
+            Ủy viên BTV
+          </span>
+        );
     }
   };
 
@@ -76,11 +93,11 @@ export default function MembersView() {
   };
 
   return (
-    <div className="space-y-6 pb-16">
+    <div className="space-y-5 pb-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h2 className="text-xl sm:text-2xl font-black text-foreground tracking-tight">
+          <h2 className="text-xl sm:text-2xl font-semibold text-foreground tracking-tight">
             Tổ chức & Thành viên Đoàn trường
           </h2>
           <p className="text-xs text-muted-foreground">
@@ -142,10 +159,10 @@ export default function MembersView() {
                 )}
 
                 <div className="flex items-center gap-3">
-                  <img
+                  <AvatarWithFallback
                     src={m.avatar_url}
-                    alt={m.full_name}
-                    className="w-14 h-14 rounded-2xl object-cover ring-2 ring-border"
+                    name={m.full_name}
+                    className="w-14 h-14 rounded-2xl ring-2 ring-border shrink-0 text-base"
                   />
                   <div className="flex-1 min-w-0">
                     <h4 className="text-sm font-bold text-foreground truncate leading-snug">{m.full_name}</h4>

@@ -6,8 +6,9 @@
 
 import React, { useState } from 'react';
 import { useApp } from '@/context/AppContext';
-import { X, Calendar, Clock, User, Users, Flag, FolderGit2, Shield } from 'lucide-react';
+import { X, Calendar, Clock, User, Users, Flag, FolderGit2, Shield, AlertTriangle, Lock, Globe } from 'lucide-react';
 import { TaskPriority, ApprovalScope } from '@/types';
+import { format } from 'date-fns';
 
 export default function CreateTaskModal() {
   const {
@@ -23,11 +24,16 @@ export default function CreateTaskModal() {
   const [description, setDescription] = useState('');
   const [ownerId, setOwnerId] = useState(currentMember.id);
   const [collaboratorIds, setCollaboratorIds] = useState<string[]>([]);
-  const [dueDate, setDueDate] = useState('2025-09-25');
+  const [dueDate, setDueDate] = useState('2026-09-25');
   const [dueTime, setDueTime] = useState('17:00');
   const [priority, setPriority] = useState<TaskPriority>('binh_thuong');
   const [approvalScope, setApprovalScope] = useState<ApprovalScope>('chuyen_mon');
   const [campaignId, setCampaignId] = useState('');
+  const [accessLevel, setAccessLevel] = useState<'cong_khai' | 'thuong_truc'>('cong_khai');
+
+  const selectedOwner = members.find((m) => m.id === ownerId);
+  const delegateOfOwner = selectedOwner?.delegate_to_id ? members.find((m) => m.id === selectedOwner.delegate_to_id) : null;
+  const isOwnerBusy = !!(selectedOwner?.busy_from && selectedOwner?.busy_to);
 
   if (!isCreateTaskModalOpen) return null;
 
@@ -50,6 +56,7 @@ export default function CreateTaskModal() {
       approval_scope: approvalScope,
       campaign_id: campaignId || null,
       status: 'moi',
+      access_level: accessLevel,
     });
 
     // Reset form
@@ -117,7 +124,75 @@ export default function CreateTaskModal() {
                 </option>
               ))}
             </select>
+
+            {/* Cảnh báo nếu đồng chí đang bận & nút chuyển giao 1 chạm */}
+            {isOwnerBusy && (
+              <div className="mt-2.5 p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-900 dark:text-amber-200 space-y-1.5 animate-in fade-in">
+                <div className="font-bold flex items-center gap-1.5 text-amber-700 dark:text-amber-300">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>
+                    Đ/c {selectedOwner?.full_name} đang bận {selectedOwner?.busy_reason || 'công tác'} ({selectedOwner?.busy_from ? format(new Date(selectedOwner.busy_from), 'dd/MM') : ''} - {selectedOwner?.busy_to ? format(new Date(selectedOwner.busy_to), 'dd/MM/yyyy') : ''})
+                  </span>
+                </div>
+                {delegateOfOwner && (
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1 border-t border-amber-500/20">
+                    <span className="text-[11px]">
+                      Đã chỉ định ủy quyền cho: <strong className="text-foreground">{delegateOfOwner.full_name}</strong>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setOwnerId(delegateOfOwner.id)}
+                      className="px-2.5 py-1 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-[11px] shadow-xs transition-colors self-start sm:self-auto"
+                    >
+                      Chuyển sang Đ/c {delegateOfOwner.full_name.split(' ').slice(-2).join(' ')}
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
+
+          {/* Chế độ bảo mật / Phân quyền truy cập */}
+          {(currentMember.role === 'bi_thu' || currentMember.role === 'pho_bi_thu') && (
+            <div>
+              <label className="text-xs font-bold text-foreground block mb-1.5">
+                Chế độ bảo mật / Phân quyền nhiệm vụ
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setAccessLevel('cong_khai')}
+                  className={`p-2.5 rounded-xl border text-xs font-semibold flex items-center gap-2 transition-all ${
+                    accessLevel === 'cong_khai'
+                      ? 'bg-primary/10 border-primary text-primary'
+                      : 'border-border text-muted-foreground hover:bg-muted/40'
+                  }`}
+                >
+                  <Globe className="w-4 h-4 text-primary shrink-0" />
+                  <div className="text-left">
+                    <div className="font-bold text-foreground text-[11px]">Công khai BTV</div>
+                    <div className="text-[10px] text-muted-foreground">Tất cả 9 đồng chí theo dõi</div>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setAccessLevel('thuong_truc')}
+                  className={`p-2.5 rounded-xl border text-xs font-semibold flex items-center gap-2 transition-all ${
+                    accessLevel === 'thuong_truc'
+                      ? 'bg-rose-500/10 border-rose-500 text-rose-600'
+                      : 'border-border text-muted-foreground hover:bg-muted/40'
+                  }`}
+                >
+                  <Lock className="w-4 h-4 text-rose-600 shrink-0" />
+                  <div className="text-left">
+                    <div className="font-bold text-rose-700 dark:text-rose-400 text-[11px]">Mật (Thường trực)</div>
+                    <div className="text-[10px] text-muted-foreground">Chỉ Bí thư & Phó Bí thư</div>
+                  </div>
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Hạn hoàn thành (cả ngày lẫn giờ) */}
           <div className="grid grid-cols-2 gap-3">

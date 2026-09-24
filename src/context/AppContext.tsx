@@ -17,6 +17,9 @@ import {
   TaskPriority,
   ApprovalScope,
   MemberRole,
+  RatingGrade,
+  WeeklyCheckin,
+  ChatRichCard,
 } from '@/types';
 import {
   INITIAL_MEMBERS,
@@ -25,6 +28,7 @@ import {
   INITIAL_TASKS,
   INITIAL_CHAT_MESSAGES,
   INITIAL_NOTIFICATIONS,
+  INITIAL_WEEKLY_CHECKINS,
 } from '@/lib/mockData';
 import { checkCanManualRemind } from '@/lib/notifications';
 import { sendMobileNotification } from '@/lib/pushNotifications';
@@ -69,6 +73,11 @@ interface AppContextType {
   currentMember: Member;
   setCurrentMemberId: (id: string) => void;
 
+  // Phiên đăng nhập & Auth Gate
+  isAuthenticated: boolean;
+  loginAsMember: (memberId: string) => void;
+  logout: () => Promise<void>;
+
   // CRUD Thành viên (Dành cho Admin)
   addMember: (memberData: Partial<Member>) => Member;
   updateMember: (memberId: string, updates: Partial<Member>) => void;
@@ -104,6 +113,20 @@ interface AppContextType {
   comments: TaskComment[];
   notifications: any[];
 
+  // Weekly Check-in (Nhiệt kế Tinh thần BTV)
+  weeklyCheckins: WeeklyCheckin[];
+  addWeeklyCheckin: (checkin: Omit<WeeklyCheckin, 'id' | 'created_at'>) => WeeklyCheckin;
+  isWeeklyCheckinModalOpen: boolean;
+  setIsWeeklyCheckinModalOpen: (open: boolean) => void;
+
+  // Trình xem PDF Scan Công văn (PdfViewerModal)
+  selectedPdfUrl: string | null;
+  selectedPdfTitle: string | null;
+  selectedPdfDoc: IncomingDocument | null;
+  isPdfModalOpen: boolean;
+  openPdfViewer: (url: string, title?: string, doc?: IncomingDocument) => void;
+  closePdfViewer: () => void;
+
   // Điều hướng
   activeTab: string;
   setActiveTab: (tab: string) => void;
@@ -116,18 +139,24 @@ interface AppContextType {
   isCreateCampaignModalOpen: boolean;
   setIsCreateCampaignModalOpen: (open: boolean) => void;
 
+  // Trạng thái Client Mount (Tránh Hydration Error #418)
+  isMounted: boolean;
+
   // Thao tác Công việc (Ghi vĩnh viễn Supabase + Realtime)
   addTask: (task: Partial<Task> & { collaborator_ids?: string[] }) => Task;
   updateTask: (taskId: string, updates: Partial<Task>) => void;
   deleteTask: (taskId: string) => void;
   updateTaskStatus: (taskId: string, status: TaskStatus) => void;
   submitTaskForApproval: (taskId: string) => void;
+  submitTaskResult: (taskId: string, submission: { note: string; links?: string[]; files?: string[] }) => void;
+  reviewTaskResult: (taskId: string, review: { grade: RatingGrade; score: number; feedback: string; approved: boolean }) => void;
   approveTask: (taskId: string) => { success: boolean; message?: string };
   rejectTask: (taskId: string, reason: string) => void;
   manualRemind: (taskId: string, message: string) => { success: boolean; message: string };
 
   // Thao tác Văn bản đến
   addIncomingDoc: (doc: Partial<IncomingDocument>) => IncomingDocument;
+  assignTaskFromDocument: (docId: string, taskData?: Partial<Task>) => { success: boolean; task?: Task; message?: string };
   createTasksFromDoc: (
     docId: string,
     assigneeIds: string[],
@@ -139,7 +168,7 @@ interface AppContextType {
 
   // Thao tác Thảo luận & Chat Realtime
   addComment: (taskId: string, body: string) => void;
-  sendChatMessage: (body: string, replyTo?: string) => void;
+  sendChatMessage: (body: string, replyTo?: string, mentions?: string[], richCard?: ChatRichCard) => void;
 
   // Trợ giúp thống kê
   getMyTasks: (memberId?: string) => {
@@ -159,11 +188,14 @@ interface AppContextType {
     tasksWithoutOwner: Task[];
     unassignedDocs: IncomingDocument[];
   };
-  getReportData: () => {
+  getReportData: (filterMonth?: number, filterYear?: number) => {
+    totalTasks: number;
     totalCompleted: number;
     beforeDeadline: number;
     onTime: number;
     afterDeadline: number;
+    averageScore: number;
+    gradeCounts: { A: number; B: number; C: number; D: number };
     memberStats: Array<{
       member: Member;
       totalAssigned: number;
@@ -171,8 +203,20 @@ interface AppContextType {
       completedLate: number;
       inProgress: number;
       overdue: number;
+      averageScore: number;
+      gradeCounts: { A: number; B: number; C: number; D: number };
+      tasks: Task[];
     }>;
   };
+  updateMemberDelegation: (
+    memberId: string,
+    delegation: {
+      busy_from: string | null;
+      busy_to: string | null;
+      busy_reason: string | null;
+      delegate_to_id: string | null;
+    }
+  ) => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -188,6 +232,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
   const [comments, setComments] = useState<TaskComment[]>([]);
 
+  // Phiên làm việc & Bảo mật Auth Gate
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+
   // Trạng thái Google Auth & Realtime
   const [authUser, setAuthUser] = useState<any>(null);
   const [isAuthLoading, setIsAuthLoading] = useState<boolean>(true);
@@ -195,12 +242,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [isSupabaseConnected, setIsSupabaseConnected] = useState<boolean>(isSupabaseConfigured);
   const [isRealtimeLive, setIsRealtimeLive] = useState<boolean>(false);
 
+  // Weekly Check-in (Nhiệt kế Tinh thần BTV)
+  const [weeklyCheckins, setWeeklyCheckins] = useState<WeeklyCheckin[]>(INITIAL_WEEKLY_CHECKINS);
+  const [isWeeklyCheckinModalOpen, setIsWeeklyCheckinModalOpen] = useState<boolean>(false);
+
+  // Trình xem PDF Scan Công văn (PdfViewerModal)
+  const [selectedPdfUrl, setSelectedPdfUrl] = useState<string | null>(null);
+  const [selectedPdfTitle, setSelectedPdfTitle] = useState<string | null>(null);
+  const [selectedPdfDoc, setSelectedPdfDoc] = useState<IncomingDocument | null>(null);
+  const [isPdfModalOpen, setIsPdfModalOpen] = useState<boolean>(false);
+
   // Điều hướng & Modals
   const [activeTab, setActiveTab] = useState<string>('trang_chu');
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [isCreateTaskModalOpen, setIsCreateTaskModalOpen] = useState<boolean>(false);
   const [isCreateDocModalOpen, setIsCreateDocModalOpen] = useState<boolean>(false);
   const [isCreateCampaignModalOpen, setIsCreateCampaignModalOpen] = useState<boolean>(false);
+  const [isMounted, setIsMounted] = useState<boolean>(false);
 
   // ----------------------------------------------------------------------------
   // 1. TẢI DỮ LIỆU TỪ SUPABASE
@@ -226,7 +284,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (dbDocs && dbDocs.length > 0) setIncomingDocs(dbDocs);
       if (dbComments && dbComments.length > 0) setComments(dbComments);
       if (dbLogs && dbLogs.length > 0) setActivityLogs(dbLogs);
-      if (dbMembers && dbMembers.length > 0) setMembers(dbMembers);
+      if (dbMembers && dbMembers.length > 0) {
+        // Đảm bảo đủ 9 thành viên BTV không bị thiếu sót
+        const memberMap = new Map<string, Member>();
+        INITIAL_MEMBERS.forEach((m) => memberMap.set(m.id, m));
+        dbMembers.forEach((m) => memberMap.set(m.id, { ...memberMap.get(m.id), ...m }));
+        setMembers(Array.from(memberMap.values()));
+      }
       if (dbCampaigns && dbCampaigns.length > 0) setCampaigns(dbCampaigns);
 
       setIsSupabaseConnected(true);
@@ -239,10 +303,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // 2. KHỞI TẠO SESSION GOOGLE AUTH & REALTIME WEBSOCKET
   // ----------------------------------------------------------------------------
   useEffect(() => {
+    setIsMounted(true);
     if (typeof window !== 'undefined') {
+      const sessionActive = localStorage.getItem('btv_session_active');
+      if (sessionActive === 'true') {
+        setIsAuthenticated(true);
+      }
       const savedTasks = localStorage.getItem('btv_tasks');
       if (savedTasks) {
-        try { setTasks(JSON.parse(savedTasks)); } catch (e) {}
+        try {
+          const parsed = JSON.parse(savedTasks);
+          // Chỉ lấy nếu dữ liệu năm 2026, tránh cache 2025 cũ bị đọng
+          if (Array.isArray(parsed) && parsed.some(t => t.due_at?.includes('2026'))) {
+            setTasks(parsed);
+          }
+        } catch (e) {}
       }
       const savedDocs = localStorage.getItem('btv_docs');
       if (savedDocs) {
@@ -252,6 +327,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (savedMemberId) {
         setCurrentMemberId(savedMemberId);
       }
+      const savedCheckins = localStorage.getItem('btv_weekly_checkins');
+      if (savedCheckins) {
+        try {
+          const parsed = JSON.parse(savedCheckins);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setWeeklyCheckins(parsed);
+          }
+        } catch (e) {}
+      }
+      const savedMembers = localStorage.getItem('btv_members');
+      if (savedMembers) {
+        try {
+          const parsed = JSON.parse(savedMembers);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setMembers(parsed);
+          }
+        } catch (e) {}
+      }
     }
 
     refreshDataFromSupabase();
@@ -260,6 +353,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       supabase.auth.getSession().then(({ data: { session } }) => {
         if (session?.user) {
           setAuthUser(session.user);
+          setIsAuthenticated(true);
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('btv_session_active', 'true');
+          }
           if (session.user.email) {
             const userEmail = session.user.email.toLowerCase();
             const matched = INITIAL_MEMBERS.find((m) => m.email.toLowerCase() === userEmail);
@@ -276,6 +373,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       } = supabase.auth.onAuthStateChange((_event, session) => {
         if (session?.user) {
           setAuthUser(session.user);
+          setIsAuthenticated(true);
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('btv_session_active', 'true');
+          }
           if (session.user.email) {
             const userEmail = session.user.email.toLowerCase();
             const matched = INITIAL_MEMBERS.find((m) => m.email.toLowerCase() === userEmail);
@@ -372,15 +473,97 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const currentMember = members.find((m) => m.id === currentMemberId) || members[0];
 
   // ----------------------------------------------------------------------------
-  // 3. THAO TÁC GOOGLE AUTH
+  // 3. THAO TÁC GOOGLE AUTH & AUTH GATE & TIỆN ÍCH HỆ THỐNG
   // ----------------------------------------------------------------------------
   const signInWithGoogle = async () => {
-    return await signInWithGoogleOAuth();
+    const res = await signInWithGoogleOAuth();
+    if (!res.error) {
+      setIsAuthenticated(true);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('btv_session_active', 'true');
+      }
+    }
+    return res;
   };
 
   const signOut = async () => {
+    setIsAuthenticated(false);
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('btv_session_active');
+    }
     await signOutSupabase();
     setAuthUser(null);
+  };
+
+  const loginAsMember = (memberId: string) => {
+    setCurrentMemberId(memberId);
+    setIsAuthenticated(true);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('btv_session_active', 'true');
+      localStorage.setItem('btv_current_member_id', memberId);
+    }
+  };
+
+  const logout = async () => {
+    await signOut();
+  };
+
+  // Check-in Tuần (Nhiệt kế Tinh thần)
+  const addWeeklyCheckin = (checkin: Omit<WeeklyCheckin, 'id' | 'created_at'>): WeeklyCheckin => {
+    const newCheckin: WeeklyCheckin = {
+      ...checkin,
+      id: generateUUID(),
+      created_at: new Date().toISOString(),
+    };
+    setWeeklyCheckins((prev) => {
+      const updated = [newCheckin, ...prev];
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('btv_weekly_checkins', JSON.stringify(updated));
+      }
+      return updated;
+    });
+    return newCheckin;
+  };
+
+  // Trình xem PDF Scan Công văn
+  const openPdfViewer = (url: string, title?: string, doc?: IncomingDocument) => {
+    setSelectedPdfUrl(url);
+    setSelectedPdfTitle(title || doc?.so_ky_hieu || 'Văn bản Scan');
+    setSelectedPdfDoc(doc || null);
+    setIsPdfModalOpen(true);
+  };
+
+  const closePdfViewer = () => {
+    setIsPdfModalOpen(false);
+    setSelectedPdfUrl(null);
+    setSelectedPdfTitle(null);
+    setSelectedPdfDoc(null);
+  };
+
+  // Cập nhật ủy quyền và bàn giao tạm thời cho BTV
+  const updateMemberDelegation = (
+    memberId: string,
+    delegation: {
+      busy_from: string | null;
+      busy_to: string | null;
+      busy_reason: string | null;
+      delegate_to_id: string | null;
+    }
+  ) => {
+    setMembers((prev) => {
+      const updated = prev.map((m) =>
+        m.id === memberId
+          ? {
+              ...m,
+              ...delegation,
+            }
+          : m
+      );
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('btv_members', JSON.stringify(updated));
+      }
+      return updated;
+    });
   };
 
   // ----------------------------------------------------------------------------
@@ -525,6 +708,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       approval_scope: taskData.approval_scope || 'chuyen_mon',
       due_at: taskData.due_at || null,
       collaborator_ids: taskData.collaborator_ids || [],
+      access_level: taskData.access_level || 'cong_khai',
+      inherited_doc_file_url: taskData.inherited_doc_file_url,
+      inherited_doc_file_name: taskData.inherited_doc_file_name,
+      delegated_from_id: taskData.delegated_from_id,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
       comments_count: 0,
@@ -614,6 +801,96 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const submitTaskForApproval = (taskId: string) => {
     updateTaskStatus(taskId, 'cho_duyet');
+  };
+
+  const submitTaskResult = (
+    taskId: string,
+    submission: { note: string; links?: string[]; files?: string[] }
+  ) => {
+    const now = new Date().toISOString();
+    const updates: Partial<Task> = {
+      status: 'cho_duyet',
+      submission_note: submission.note,
+      submission_links: submission.links || [],
+      submission_files: submission.files || [],
+      submitted_at: now,
+      updated_at: now,
+    };
+    updateTask(taskId, updates);
+
+    const log: ActivityLog = {
+      id: generateUUID(),
+      task_id: taskId,
+      member_id: currentMember.id,
+      action: 'status_changed',
+      detail: { from: 'dang_lam', to: 'cho_duyet', note: submission.note },
+      created_at: now,
+      member: currentMember,
+    };
+    setActivityLogs((prev) => [log, ...prev]);
+    insertActivityLogToSupabase(log);
+  };
+
+  const reviewTaskResult = (
+    taskId: string,
+    review: { grade: RatingGrade; score: number; feedback: string; approved: boolean }
+  ) => {
+    const now = new Date().toISOString();
+    if (review.approved) {
+      const updates: Partial<Task> = {
+        status: 'hoan_thanh',
+        completed_at: now,
+        rating_grade: review.grade,
+        rating_score: review.score,
+        review_feedback: review.feedback,
+        rated_by: currentMember.id,
+        rated_at: now,
+        approved_by: currentMember.id,
+        updated_at: now,
+      };
+      updateTask(taskId, updates);
+
+      const log: ActivityLog = {
+        id: generateUUID(),
+        task_id: taskId,
+        member_id: currentMember.id,
+        action: 'approved',
+        detail: {
+          approved_by: currentMember.full_name,
+          grade: review.grade,
+          score: review.score,
+          feedback: review.feedback,
+        },
+        created_at: now,
+        member: currentMember,
+      };
+      setActivityLogs((prev) => [log, ...prev]);
+      insertActivityLogToSupabase(log);
+    } else {
+      const updates: Partial<Task> = {
+        status: 'dang_lam',
+        review_feedback: review.feedback,
+        updated_at: now,
+      };
+      updateTask(taskId, updates);
+
+      addComment(
+        taskId,
+        `[YÊU CẦU LÀM LẠI] ${currentMember.full_name} đã đánh giá và yêu cầu bổ sung: "${review.feedback}"`
+      );
+
+      const log: ActivityLog = {
+        id: generateUUID(),
+        task_id: taskId,
+        member_id: currentMember.id,
+        action: 'status_changed',
+        detail: { from: 'cho_duyet', to: 'dang_lam', feedback: review.feedback, reason: 'Yêu cầu làm lại' },
+        created_at: now,
+        member: currentMember,
+      };
+      setActivityLogs((prev) => [log, ...prev]);
+      insertActivityLogToSupabase(log);
+    }
   };
 
   const approveTask = (taskId: string): { success: boolean; message?: string } => {
@@ -749,6 +1026,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       nguoi_nhan_xu_ly: docData.nguoi_nhan_xu_ly || 'Xin ý kiến BTV',
       thoi_han_xu_ly: docData.thoi_han_xu_ly || null,
       ghi_chu: docData.ghi_chu || '',
+      file_path: docData.file_path,
+      file_url: docData.file_url,
+      file_name: docData.file_name,
+      file_size: docData.file_size,
+      access_level: docData.access_level || 'cong_khai',
       created_by: currentMember.id,
       created_at: new Date().toISOString(),
     };
@@ -756,6 +1038,52 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setIncomingDocs((prev) => [newDoc, ...prev]);
     insertIncomingDocToSupabase(newDoc);
     return newDoc;
+  };
+
+  const assignTaskFromDocument = (
+    docId: string,
+    taskData?: Partial<Task>
+  ): { success: boolean; task?: Task; message?: string } => {
+    const doc = incomingDocs.find((d) => d.id === docId);
+    if (!doc) return { success: false, message: 'Không tìm thấy thông tin văn bản đến.' };
+
+    const existing = tasks.find((t) => t.source_document_id === docId);
+    if (existing) {
+      return {
+        success: false,
+        task: existing,
+        message: `Văn bản này đã được giao việc: "${existing.title}". Hãy kiểm tra lại danh sách công việc!`,
+      };
+    }
+
+    const newTask = addTask({
+      title: taskData?.title || `Xử lý VB [${doc.so_ky_hieu || 'CV'}]: ${doc.noi_dung.slice(0, 60)}...`,
+      description:
+        taskData?.description ||
+        `Trích yếu văn bản: ${doc.noi_dung}\nĐơn vị gửi: ${doc.don_vi_gui}\nSố ký hiệu: ${doc.so_ky_hieu || 'Chưa có'}\nGhi chú: ${doc.ghi_chu || 'Không'}`,
+      source_document_id: doc.id,
+      owner_id: taskData?.owner_id || currentMember.id,
+      collaborator_ids: taskData?.collaborator_ids || [],
+      priority: taskData?.priority || 'cao',
+      approval_scope: taskData?.approval_scope || 'chuyen_mon',
+      due_at: taskData?.due_at || doc.thoi_han_xu_ly || new Date(Date.now() + 7 * 86400000).toISOString(),
+      access_level: doc.access_level || 'cong_khai',
+      inherited_doc_file_url: doc.file_url,
+      inherited_doc_file_name: doc.file_name,
+      delegated_from_id: taskData?.delegated_from_id,
+      status: 'moi',
+    });
+
+    const ownerName =
+      members.find((m) => m.id === newTask.owner_id)?.full_name || currentMember.full_name;
+    const docUpdates = {
+      ngay_chuyen_xu_ly: new Date().toISOString().split('T')[0],
+      nguoi_nhan_xu_ly: ownerName,
+    };
+    setIncomingDocs((prev) => prev.map((d) => (d.id === docId ? { ...d, ...docUpdates } : d)));
+    updateIncomingDocOnSupabase(docId, docUpdates);
+
+    return { success: true, task: newTask };
   };
 
   const createTasksFromDoc = (
@@ -780,6 +1108,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         priority,
         approval_scope: approvalScope,
         due_at: doc.thoi_han_xu_ly || null,
+        access_level: doc.access_level || 'cong_khai',
+        inherited_doc_file_url: doc.file_url,
+        inherited_doc_file_name: doc.file_name,
         status: 'moi',
       });
       createdTasks.push(newTask);
@@ -826,12 +1157,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     insertCommentToSupabase(newComment);
   };
 
-  const sendChatMessage = (body: string, replyTo?: string) => {
+  const sendChatMessage = (
+    body: string,
+    replyTo?: string,
+    mentions?: string[],
+    richCard?: ChatRichCard
+  ) => {
     const newMsg: ChatMessage = {
       id: generateUUID(),
       member_id: currentMember.id,
       body,
       reply_to: replyTo || null,
+      mentions: mentions || [],
+      rich_card: richCard,
       created_at: new Date().toISOString(),
       member: currentMember,
     };
@@ -952,13 +1290,38 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
   };
 
-  const getReportData = () => {
-    const completedTasks = tasks.filter((t) => t.status === 'hoan_thanh');
+  const getReportData = (filterMonth?: number, filterYear?: number) => {
+    // Mặc định Tháng 9/2026
+    const targetMonth = filterMonth !== undefined ? filterMonth : 9;
+    const targetYear = filterYear !== undefined ? filterYear : 2026;
+
+    // Lọc công việc trong kỳ
+    const filteredTasks = tasks.filter((t) => {
+      if (targetMonth === 0) return true; // Toàn bộ
+      const dateStr = t.completed_at || t.due_at || t.created_at;
+      if (!dateStr) return false;
+      const d = new Date(dateStr);
+      return d.getMonth() + 1 === targetMonth && d.getFullYear() === targetYear;
+    });
+
+    const completedTasks = filteredTasks.filter((t) => t.status === 'hoan_thanh');
     let beforeDeadline = 0;
     let onTime = 0;
     let afterDeadline = 0;
 
+    const gradeCounts = { A: 0, B: 0, C: 0, D: 0 };
+    let totalScoreSum = 0;
+    let scoredTasksCount = 0;
+
     completedTasks.forEach((t) => {
+      if (t.rating_grade && gradeCounts[t.rating_grade] !== undefined) {
+        gradeCounts[t.rating_grade]++;
+      }
+      if (typeof t.rating_score === 'number') {
+        totalScoreSum += t.rating_score;
+        scoredTasksCount++;
+      }
+
       if (!t.due_at || !t.completed_at) {
         onTime++;
         return;
@@ -977,9 +1340,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
     });
 
+    const averageScore =
+      scoredTasksCount > 0 ? Math.round((totalScoreSum / scoredTasksCount) * 10) / 10 : 9.0;
+
     const now = new Date();
     const memberStats = members.map((member) => {
-      const assigned = tasks.filter((t) => t.owner_id === member.id);
+      const assigned = filteredTasks.filter((t) => t.owner_id === member.id);
       const comp = assigned.filter((t) => t.status === 'hoan_thanh');
       const inProg = assigned.filter((t) => t.status === 'dang_lam' || t.status === 'moi');
       const ov = assigned.filter(
@@ -988,7 +1354,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       let compOnTime = 0;
       let compLate = 0;
+      let memberScoreSum = 0;
+      let memberScoredCount = 0;
+      const mGrades = { A: 0, B: 0, C: 0, D: 0 };
+
       comp.forEach((t) => {
+        if (t.rating_grade && mGrades[t.rating_grade] !== undefined) {
+          mGrades[t.rating_grade]++;
+        }
+        if (typeof t.rating_score === 'number') {
+          memberScoreSum += t.rating_score;
+          memberScoredCount++;
+        }
+
         if (!t.due_at || !t.completed_at) {
           compOnTime++;
         } else if (new Date(t.completed_at) <= new Date(t.due_at)) {
@@ -998,6 +1376,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
       });
 
+      const mAvgScore =
+        memberScoredCount > 0 ? Math.round((memberScoreSum / memberScoredCount) * 10) / 10 : 0;
+
       return {
         member,
         totalAssigned: assigned.length,
@@ -1005,14 +1386,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         completedLate: compLate,
         inProgress: inProg.length,
         overdue: ov.length,
+        averageScore: mAvgScore,
+        gradeCounts: mGrades,
+        tasks: assigned,
       };
     });
 
     return {
+      totalTasks: filteredTasks.length,
       totalCompleted: completedTasks.length,
       beforeDeadline,
       onTime,
       afterDeadline,
+      averageScore,
+      gradeCounts,
       memberStats,
     };
   };
@@ -1023,6 +1410,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         members,
         currentMember,
         setCurrentMemberId,
+        isAuthenticated,
+        loginAsMember,
+        logout,
         addMember,
         updateMember,
         deleteMember,
@@ -1046,6 +1436,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         activityLogs,
         comments,
         notifications,
+        weeklyCheckins,
+        addWeeklyCheckin,
+        isWeeklyCheckinModalOpen,
+        setIsWeeklyCheckinModalOpen,
+        selectedPdfUrl,
+        selectedPdfTitle,
+        selectedPdfDoc,
+        isPdfModalOpen,
+        openPdfViewer,
+        closePdfViewer,
         activeTab,
         setActiveTab,
         selectedTaskId,
@@ -1056,21 +1456,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setIsCreateDocModalOpen,
         isCreateCampaignModalOpen,
         setIsCreateCampaignModalOpen,
+        isMounted,
         addTask,
         updateTask,
         deleteTask,
         updateTaskStatus,
         submitTaskForApproval,
+        submitTaskResult,
+        reviewTaskResult,
         approveTask,
         rejectTask,
         manualRemind,
         addIncomingDoc,
+        assignTaskFromDocument,
         createTasksFromDoc,
         addComment,
         sendChatMessage,
         getMyTasks,
         getCoordinatorData,
         getReportData,
+        updateMemberDelegation,
       }}
     >
       {children}

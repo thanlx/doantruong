@@ -7,8 +7,10 @@
 import React, { useState } from 'react';
 import { useApp } from '@/context/AppContext';
 import Sidebar from '@/components/Sidebar';
+import MobileNavigation from '@/components/MobileNavigation';
 import Header from '@/components/Header';
 import BottomNav from '@/components/BottomNav';
+import LoginPage from '@/components/LoginPage';
 
 // Các màn hình nghiệp vụ
 import DashboardView from '@/components/views/DashboardView';
@@ -24,23 +26,52 @@ import ReportsView from '@/components/views/ReportsView';
 import IosGuideView from '@/components/views/IosGuideView';
 import SettingsView from '@/components/views/SettingsView';
 import AdminView from '@/components/views/AdminView';
+import FeatureShowcase from '@/components/FeatureShowcase';
 
 // Modals
 import TaskDetailModal from '@/components/modals/TaskDetailModal';
 import CreateTaskModal from '@/components/modals/CreateTaskModal';
 import CreateIncomingDocModal from '@/components/modals/CreateIncomingDocModal';
 import CreateCampaignModal from '@/components/modals/CreateCampaignModal';
+import InactivityLockModal from '@/components/InactivityLockModal';
+import PdfViewerModal from '@/components/modals/PdfViewerModal';
+import WeeklyCheckinModal from '@/components/modals/WeeklyCheckinModal';
 
 export default function Home() {
   const {
     activeTab,
-    setActiveTab,
+    isAuthenticated,
+    isMounted,
     isCreateDocModalOpen,
     setIsCreateDocModalOpen,
     isCreateCampaignModalOpen,
     setIsCreateCampaignModalOpen,
+    isPdfModalOpen,
+    closePdfViewer,
+    selectedPdfUrl,
+    selectedPdfTitle,
+    selectedPdfDoc,
+    isWeeklyCheckinModalOpen,
+    setIsWeeklyCheckinModalOpen,
   } = useApp();
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
+
+  // Tránh flash khi chưa mount
+  if (!isMounted) {
+    return (
+      <div className="min-h-dvh flex items-center justify-center bg-background text-foreground">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-10 h-10 border-3 border-primary border-t-transparent rounded-full animate-spin" />
+          <p className="text-xs font-semibold text-muted-foreground">Đang tải hệ thống BTV Đoàn trường...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // AUTH GATE: Chặn truy cập trực tiếp khi chưa đăng nhập
+  if (!isAuthenticated) {
+    return <LoginPage />;
+  }
 
   // Chọn view tương ứng với tab
   const renderCurrentView = () => {
@@ -69,6 +100,8 @@ export default function Home() {
         return <ReportsView />;
       case 'huong_dan_ios':
         return <IosGuideView />;
+      case 'thiet_ke':
+        return <FeatureShowcase />;
       case 'cai_dat':
         return <SettingsView />;
       default:
@@ -77,42 +110,41 @@ export default function Home() {
   };
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background text-foreground">
-      {/* 1. SIDEBAR DESKTOP (Ẩn trên mobile) */}
-      <div className="hidden md:flex h-full">
-        <Sidebar />
+    <div className="app-shell flex flex-col h-dvh overflow-hidden text-foreground">
+      <a href="#main-content" className="skip-link">Đến nội dung chính</a>
+      <div className="brand-banner" aria-label="Đoàn trường HCMUTE — Tuổi trẻ hôm nay, kiến tạo ngày mai">
+        <img src="/images/header-brand.png" alt="Đoàn trường HCMUTE — Tuổi trẻ hôm nay, kiến tạo ngày mai" width={1536} height={92} className="brand-banner-image" />
       </div>
 
-      {/* 2. DRAWER SIDEBAR CHO MOBILE (Khi bấm nút menu trên mobile header) */}
-      {isMobileDrawerOpen && (
-        <div className="fixed inset-0 z-50 md:hidden flex">
-          <div
-            className="fixed inset-0 bg-black/50 backdrop-blur-xs"
-            onClick={() => setIsMobileDrawerOpen(false)}
-          />
-          <div className="relative z-10 w-4/5 max-w-xs h-full bg-card border-r border-border shadow-2xl flex flex-col animate-in slide-in-from-left duration-200">
-            <Sidebar />
-          </div>
+      {/* KHUNG ỨNG DỤNG CHÍNH */}
+      <div className="app-frame flex flex-1 min-h-0 overflow-hidden relative">
+        {/* 1. SIDEBAR DESKTOP (Ẩn trên mobile) */}
+        <div className="hidden md:flex h-full shrink-0">
+          <Sidebar />
         </div>
-      )}
 
-      {/* 3. KHU VỰC NỘI DUNG CHÍNH */}
-      <div className="flex-1 flex flex-col h-full overflow-hidden min-w-0">
-        {/* Header trên đỉnh */}
-        <Header onOpenMobileMenu={() => setIsMobileDrawerOpen(true)} />
+        {/* 2. DRAWER SIDEBAR CHO MOBILE (Khi bấm nút menu trên mobile header) */}
+        {isMobileDrawerOpen && <MobileNavigation onClose={() => setIsMobileDrawerOpen(false)} />}
 
-        {/* Thân cuộn trang */}
-        <main className="flex-1 overflow-y-auto px-3 sm:px-6 lg:px-8 pt-3 sm:pt-6 pb-24 md:pb-8 scrollbar-thin">
-          <div className="max-w-7xl mx-auto">
-            {renderCurrentView()}
-          </div>
-        </main>
+        {/* 3. KHU VỰC NỘI DUNG CHÍNH */}
+        <div className="app-workspace flex-1 flex flex-col h-full overflow-hidden min-w-0">
+          {/* Header trên đỉnh */}
+          <Header onOpenMobileMenu={() => setIsMobileDrawerOpen(true)} />
+
+          {/* Thân cuộn trang chuẩn spacing Section 3.1 & 3.4 */}
+          <main id="main-content" tabIndex={-1} className="app-main flex-1 min-h-0 overflow-y-auto px-3 sm:px-5 pt-4 pb-24 md:pb-6 scrollbar-thin">
+            <div className="view-content w-full max-w-[1600px] mx-auto" data-view={activeTab}>
+              {renderCurrentView()}
+            </div>
+          </main>
+        </div>
       </div>
 
       {/* 4. BOTTOM NAVIGATION CHO MOBILE (Khớp 100% 5 màn hình mẫu) */}
       <BottomNav />
 
       {/* 5. CÁC MODAL HỆ THỐNG */}
+      <InactivityLockModal />
       <TaskDetailModal />
       <CreateTaskModal />
       <CreateIncomingDocModal
@@ -122,6 +154,17 @@ export default function Home() {
       <CreateCampaignModal
         isOpen={isCreateCampaignModalOpen}
         onClose={() => setIsCreateCampaignModalOpen(false)}
+      />
+      <PdfViewerModal
+        isOpen={isPdfModalOpen}
+        onClose={closePdfViewer}
+        pdfUrl={selectedPdfUrl}
+        title={selectedPdfTitle || undefined}
+        doc={selectedPdfDoc}
+      />
+      <WeeklyCheckinModal
+        isOpen={isWeeklyCheckinModalOpen}
+        onClose={() => setIsWeeklyCheckinModalOpen(false)}
       />
     </div>
   );

@@ -12,6 +12,8 @@ import {
   Plus,
   Calendar,
   MoreHorizontal,
+  FolderGit2,
+  Palette,
   Compass,
   FileText,
   MessageSquare,
@@ -28,6 +30,8 @@ export default function BottomNav() {
   const [showMoreMenu, setShowMoreMenu] = useState(false);
 
   const moreItems = [
+    { id: 'du_an', label: 'Dự án / Chiến dịch', icon: FolderGit2 },
+    { id: 'thiet_ke', label: 'Hệ thống thiết kế', icon: Palette },
     { id: 'admin', label: 'Quản trị Admin', icon: ShieldAlert },
     { id: 'viec_cua_toi', label: 'Việc của tôi', icon: CheckSquare },
     { id: 'dieu_phoi', label: 'Bảng điều phối', icon: Compass },
