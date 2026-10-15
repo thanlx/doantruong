@@ -353,6 +353,7 @@ export interface AppUser {
   student_id: string;
   email: string;
   avatar_code: string;
+  avatar_url?: string;
   roles: UserRole[];
   current_role: UserRole;
   scope_unit_id?: string | null;

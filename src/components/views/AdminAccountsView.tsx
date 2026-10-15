@@ -1,28 +1,67 @@
 'use client';
 
+// ==============================================================================
+// QUẢN TRỊ TÀI KHOẢN VÀ PHÂN QUYỀN (ADMIN ACCOUNTS & ROLES MANAGEMENT)
+// Hỗ trợ Super Admin (thanlx@hcmute.edu.vn) thêm, phân quyền Admin & bảo vệ hệ thống
+// ==============================================================================
+
 import React, { useState } from 'react';
 import { useApp } from '@/context/AppContext';
-import { 
-  Users, 
-  Shield, 
-  Search, 
-  Filter, 
-  UserPlus, 
-  Lock, 
-  Unlock, 
-  Check, 
-  X, 
-  Edit, 
-  Key, 
+import {
+  Users,
+  Shield,
+  Search,
+  Filter,
+  UserPlus,
+  Lock,
+  Unlock,
+  Check,
+  X,
+  Edit,
   AlertTriangle,
   Building,
   CheckCircle2,
-  MoreVertical
+  Trash2,
+  Crown,
+  Key,
 } from 'lucide-react';
-import { AppUser } from '@/types';
+import { AppUser, UserRole } from '@/types';
+
+const ROLE_OPTIONS: { id: UserRole; label: string; desc: string; color: string }[] = [
+  {
+    id: 'admin',
+    label: 'Quản trị hệ thống (Admin)',
+    desc: 'Quản lý tài khoản, danh mục tổ chức, cấu hình & xem nhật ký kiểm toán',
+    color: 'bg-purple-100 text-purple-800 border-purple-200',
+  },
+  {
+    id: 'lanh_dao',
+    label: 'Lãnh đạo / Xem báo cáo',
+    desc: 'Xem tổng hợp số liệu toàn trường, chỉ đọc và xuất báo cáo nghiệp vụ',
+    color: 'bg-indigo-100 text-indigo-800 border-indigo-200',
+  },
+  {
+    id: 'nguoi_duyet',
+    label: 'Người duyệt nghiệp vụ',
+    desc: 'Duyệt cập nhật hồ sơ, đề xuất bổ nhiệm, ký quyết định nhân sự',
+    color: 'bg-blue-100 text-blue-800 border-blue-200',
+  },
+  {
+    id: 'quan_ly_don_vi',
+    label: 'Quản lý đơn vị',
+    desc: 'Nhập hồ sơ cán bộ đơn vị, đề xuất quyết định, đánh giá định kỳ cơ sở',
+    color: 'bg-amber-100 text-amber-800 border-amber-200',
+  },
+  {
+    id: 'can_bo_ca_nhan',
+    label: 'Cán bộ cá nhân',
+    desc: 'Xem lý lịch cá nhân, gửi yêu cầu sửa đổi thông tin, nộp tự đánh giá',
+    color: 'bg-slate-100 text-slate-800 border-slate-200',
+  },
+];
 
 export const AdminAccountsView: React.FC = () => {
-  const { users, setUsers, units, profiles, addAuditLog } = useApp();
+  const { users, setUsers, units, currentUser, addAuditLog } = useApp();
 
   const [searchTerm, setSearchTerm] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
@@ -32,23 +71,64 @@ export const AdminAccountsView: React.FC = () => {
   const [actionNotice, setActionNotice] = useState<string | null>(null);
 
   // New user form state
-  const [newUsername, setNewUsername] = useState('');
   const [newFullName, setNewFullName] = useState('');
   const [newEmail, setNewEmail] = useState('');
+  const [newUsername, setNewUsername] = useState('');
   const [newStudentId, setNewStudentId] = useState('');
-  const [newRoles, setNewRoles] = useState<string[]>(['OFFICER']);
-  const [newScopeUnit, setNewScopeUnit] = useState('UNIT-03');
+  const [newRoles, setNewRoles] = useState<UserRole[]>(['can_bo_ca_nhan']);
+  const [newScopeUnit, setNewScopeUnit] = useState('ALL');
 
-  const filteredUsers = users.filter(u => {
-    const matchesSearch = u.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          (u.username ? u.username.toLowerCase().includes(searchTerm.toLowerCase()) : false) ||
-                          (u.student_id && u.student_id.includes(searchTerm));
-    const matchesRole = roleFilter === 'all' || u.roles.includes(roleFilter as any);
+  const isSuperAdminAccount = (u: AppUser) => {
+    const email = (u.email || '').toLowerCase().trim();
+    return (
+      email === 'thanlx@hcmute.edu.vn' ||
+      email === 'lexuanthanspkt@gmail.com' ||
+      u.id === 'user_thanlx' ||
+      u.profile_id === 'prof_thanlx'
+    );
+  };
+
+  const normalizeRole = (r: string): UserRole => {
+    switch (r.toUpperCase()) {
+      case 'ADMIN':
+        return 'admin';
+      case 'LEADER':
+      case 'LANH_DAO':
+        return 'lanh_dao';
+      case 'APPROVER':
+      case 'NGUOI_DUYET':
+        return 'nguoi_duyet';
+      case 'UNIT_MANAGER':
+      case 'QUAN_LY_DON_VI':
+        return 'quan_ly_don_vi';
+      default:
+        return 'can_bo_ca_nhan';
+    }
+  };
+
+  const filteredUsers = users.filter((u) => {
+    const matchesSearch =
+      u.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (u.username ? u.username.toLowerCase().includes(searchTerm.toLowerCase()) : false) ||
+      (u.email ? u.email.toLowerCase().includes(searchTerm.toLowerCase()) : false) ||
+      (u.student_id && u.student_id.toLowerCase().includes(searchTerm.toLowerCase()));
+
+    const normalizedRoles = (u.roles || []).map((r) => normalizeRole(r));
+    const matchesRole =
+      roleFilter === 'all' ||
+      normalizedRoles.includes(roleFilter as UserRole) ||
+      (u.roles || []).includes(roleFilter as any);
+
     return matchesSearch && matchesRole;
   });
 
   const handleToggleLock = (user: AppUser) => {
-    const updatedUsers = users.map(u => {
+    if (isSuperAdminAccount(user)) {
+      alert('Không thể khóa tài khoản Quản trị viên cấp cao nhất (Super Admin)!');
+      return;
+    }
+
+    const updatedUsers = users.map((u) => {
       if (u.id === user.id) {
         return { ...u, is_active: !u.is_active };
       }
@@ -61,86 +141,149 @@ export const AdminAccountsView: React.FC = () => {
     }
 
     addAuditLog({
-      actor_name: 'Nguyễn Minh Anh',
-      actor_code: '23110001',
+      actor_name: currentUser.full_name || 'Lê Xuân Thân',
+      actor_code: currentUser.student_id || 'CB-HCMUTE',
       action_type: 'UPDATE',
       target_type: 'ACCOUNT',
       target_id: user.id,
       result: 'SUCCESS',
-      description: `${user.is_active ? 'Khóa' : 'Mở khóa'} tài khoản: ${user.username} (${user.full_name})`,
-      ip_address: '10.0.0.1'
+      description: `${user.is_active ? 'Khóa' : 'Mở khóa'} tài khoản: ${user.username || user.email} (${user.full_name})`,
+      ip_address: '10.0.0.1',
     });
 
     setActionNotice(`Đã ${user.is_active ? 'khóa' : 'mở khóa'} tài khoản ${user.full_name}`);
     setTimeout(() => setActionNotice(null), 3500);
   };
 
-  const handleSaveRoles = (updatedRoles: string[], updatedScope: string | null) => {
+  const handleDeleteUser = (user: AppUser) => {
+    if (isSuperAdminAccount(user)) {
+      alert('Không thể xóa tài khoản Quản trị viên cấp cao nhất!');
+      return;
+    }
+
+    if (!confirm(`Bạn có chắc chắn muốn xóa tài khoản ${user.full_name} (${user.email}) khỏi hệ thống?`)) {
+      return;
+    }
+
+    const updated = users.filter((u) => u.id !== user.id);
+    setUsers(updated);
+    if (selectedUser?.id === user.id) {
+      setSelectedUser(null);
+    }
+
+    addAuditLog({
+      actor_name: currentUser.full_name || 'Lê Xuân Thân',
+      actor_code: currentUser.student_id || 'CB-HCMUTE',
+      action_type: 'DELETE',
+      target_type: 'ACCOUNT',
+      target_id: user.id,
+      result: 'SUCCESS',
+      description: `Xóa tài khoản: ${user.email} (${user.full_name})`,
+      ip_address: '10.0.0.1',
+    });
+
+    setActionNotice(`Đã xóa tài khoản ${user.full_name}`);
+    setTimeout(() => setActionNotice(null), 3500);
+  };
+
+  const handleSaveRoles = (updatedRoles: UserRole[], updatedScope: string | null) => {
     if (!selectedUser) return;
-    const updatedUsers = users.map(u => {
+
+    if (isSuperAdminAccount(selectedUser) && !updatedRoles.includes('admin')) {
+      alert('Tài khoản Super Admin bắt buộc phải giữ quyền Quản trị hệ thống (Admin)!');
+      return;
+    }
+
+    const updatedUsers = users.map((u) => {
       if (u.id === selectedUser.id) {
-        return { ...u, roles: updatedRoles as any, scope_unit_id: updatedScope };
+        return {
+          ...u,
+          roles: updatedRoles,
+          current_role: updatedRoles[0] || 'can_bo_ca_nhan',
+          scope_unit_id: updatedScope,
+          scope_unit_name: updatedScope ? units.find((un) => un.id === updatedScope)?.name || 'Đơn vị' : 'Toàn trường',
+        };
       }
       return u;
     });
+
     setUsers(updatedUsers);
-    setSelectedUser({ ...selectedUser, roles: updatedRoles as any, scope_unit_id: updatedScope });
+    setSelectedUser({
+      ...selectedUser,
+      roles: updatedRoles,
+      current_role: updatedRoles[0] || 'can_bo_ca_nhan',
+      scope_unit_id: updatedScope,
+      scope_unit_name: updatedScope ? units.find((un) => un.id === updatedScope)?.name || 'Đơn vị' : 'Toàn trường',
+    });
     setIsEditing(false);
 
     addAuditLog({
-      actor_name: 'Nguyễn Minh Anh',
-      actor_code: '23110001',
+      actor_name: currentUser.full_name || 'Lê Xuân Thân',
+      actor_code: currentUser.student_id || 'CB-HCMUTE',
       action_type: 'UPDATE',
       target_type: 'ACCOUNT',
       target_id: selectedUser.id,
       result: 'SUCCESS',
-      description: `Cập nhật phân quyền và phạm vi cho ${selectedUser.username}`,
-      ip_address: '10.0.0.1'
+      description: `Cập nhật phân quyền cho ${selectedUser.full_name} (${selectedUser.email}): [${updatedRoles.join(', ')}]`,
+      ip_address: '10.0.0.1',
     });
 
-    setActionNotice(`Đã cập nhật vai trò cho ${selectedUser.full_name}`);
+    setActionNotice(`Đã cập nhật vai trò phân quyền cho ${selectedUser.full_name}`);
     setTimeout(() => setActionNotice(null), 3500);
   };
 
   const handleCreateUser = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newUsername || !newFullName) {
-      alert('Vui lòng điền đủ thông tin bắt buộc');
+    if (!newFullName.trim() || !newEmail.trim()) {
+      alert('Vui lòng điền Họ tên và Email tài khoản.');
       return;
     }
 
+    const emailTrimmed = newEmail.trim().toLowerCase();
+    const existing = users.find((u) => u.email.toLowerCase() === emailTrimmed);
+    if (existing) {
+      alert(`Email ${emailTrimmed} đã tồn tại trong danh sách tài khoản!`);
+      return;
+    }
+
+    const assignedRoles: UserRole[] = newRoles.length > 0 ? newRoles : ['can_bo_ca_nhan'];
+    const chosenScopeId = newScopeUnit === 'ALL' ? null : newScopeUnit;
+    const chosenScopeName = chosenScopeId ? units.find((u) => u.id === chosenScopeId)?.name || 'Đơn vị' : 'Toàn trường';
+
     const newUser: AppUser = {
-      id: `USER-${Date.now()}`,
+      id: `user_${Date.now()}`,
       profile_id: `prof_${Date.now()}`,
-      username: newUsername.trim(),
+      username: (newUsername.trim() || emailTrimmed.split('@')[0]).toLowerCase(),
       full_name: newFullName.trim(),
-      email: newEmail.trim() || `${newUsername}@example.com`,
-      student_id: newStudentId.trim() || newUsername.trim(),
+      email: emailTrimmed,
+      student_id: newStudentId.trim() || (newUsername.trim() || 'CB-HCMUTE'),
       avatar_code: newFullName.trim().slice(0, 2).toUpperCase(),
-      roles: newRoles as any,
-      current_role: (newRoles[0] as any) || 'can_bo_ca_nhan',
-      scope_unit_id: newScopeUnit === 'ALL' ? null : newScopeUnit,
-      scope_unit_name: newScopeUnit === 'ALL' ? 'Toàn trường' : (units.find(u => u.id === newScopeUnit)?.name || 'Đơn vị'),
-      portal_mode: 'admin',
-      is_active: true
+      roles: assignedRoles,
+      current_role: assignedRoles[0],
+      scope_unit_id: chosenScopeId,
+      scope_unit_name: chosenScopeName,
+      portal_mode: assignedRoles.includes('admin') ? 'admin' : 'user',
+      is_active: true,
     };
 
     setUsers([...users, newUser]);
     setShowAddModal(false);
-    setNewUsername('');
     setNewFullName('');
     setNewEmail('');
+    setNewUsername('');
     setNewStudentId('');
+    setNewRoles(['can_bo_ca_nhan']);
+    setNewScopeUnit('ALL');
 
     addAuditLog({
-      actor_name: 'Nguyễn Minh Anh',
-      actor_code: '23110001',
+      actor_name: currentUser.full_name || 'Lê Xuân Thân',
+      actor_code: currentUser.student_id || 'CB-HCMUTE',
       action_type: 'CREATE',
       target_type: 'ACCOUNT',
       target_id: newUser.id,
       result: 'SUCCESS',
-      description: `Tạo tài khoản mới: ${newUser.username} (${newUser.full_name})`,
-      ip_address: '10.0.0.1'
+      description: `Tạo tài khoản mới: ${newUser.email} (${newUser.full_name}) với các quyền [${assignedRoles.join(', ')}]`,
+      ip_address: '10.0.0.1',
     });
 
     setActionNotice(`Đã tạo tài khoản thành công cho ${newUser.full_name}`);
@@ -148,159 +291,191 @@ export const AdminAccountsView: React.FC = () => {
   };
 
   const getRoleBadge = (role: string) => {
-    switch (role) {
-      case 'ADMIN':
-        return <span key={role} className="text-xs px-2 py-0.5 rounded bg-purple-50 text-purple-700 font-medium">Quản trị viên</span>;
-      case 'LEADER':
-        return <span key={role} className="text-xs px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 font-medium">Lãnh đạo</span>;
-      case 'APPROVER':
-        return <span key={role} className="text-xs px-2 py-0.5 rounded bg-blue-50 text-[#005BAA] font-medium">Người duyệt</span>;
-      case 'UNIT_MANAGER':
-        return <span key={role} className="text-xs px-2 py-0.5 rounded bg-amber-50 text-amber-700 font-medium">Quản lý đơn vị</span>;
-      default:
-        return <span key={role} className="text-xs px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-medium">Cán bộ cá nhân</span>;
+    const norm = normalizeRole(role);
+    const found = ROLE_OPTIONS.find((r) => r.id === norm);
+    if (!found) {
+      return (
+        <span key={role} className="text-[11px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 font-semibold border border-slate-200">
+          Cán bộ cá nhân
+        </span>
+      );
     }
+    return (
+      <span key={role} className={`text-[11px] px-2 py-0.5 rounded-full font-semibold border ${found.color}`}>
+        {found.label.split('(')[0].trim()}
+      </span>
+    );
   };
 
   return (
-    <div className="space-y-6 pb-12">
+    <div className="space-y-6 pb-12 animate-in fade-in duration-300">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <div className="flex items-center gap-2 text-xs text-slate-500 mb-1">
-            <span>Trang chủ</span>
+          <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+            <span>Quản trị hệ thống</span>
             <span>&gt;</span>
-            <span className="text-slate-800 font-medium">Tài khoản và phân quyền</span>
+            <span className="text-foreground font-semibold">Tài khoản và phân quyền</span>
           </div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Tài khoản và phân quyền</h1>
-          <p className="text-sm text-slate-500 mt-0.5">Quản lý tài khoản người dùng, phân vai trò và phạm vi dữ liệu áp dụng.</p>
+          <h1 className="text-2xl font-black text-foreground tracking-tight flex items-center gap-2">
+            <span>Quản lý Tài khoản & Phân quyền Admin</span>
+            <Shield className="w-5 h-5 text-primary" />
+          </h1>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Phân quyền quản trị viên, người duyệt, quản lý đơn vị và tài khoản người dùng Google.
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <button
             onClick={() => setShowAddModal(true)}
-            className="flex items-center gap-2 bg-[#005BAA] hover:bg-[#004785] text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors shadow-xs"
+            className="flex items-center gap-2 bg-primary hover:bg-primary/90 text-primary-foreground px-4 py-2.5 rounded-xl text-xs font-bold transition-all shadow-md hover:shadow-lg active:scale-98 cursor-pointer"
           >
             <UserPlus className="w-4 h-4" />
-            Tạo tài khoản mới
+            <span>Thêm tài khoản / Phân quyền Admin</span>
           </button>
         </div>
       </div>
 
       {actionNotice && (
-        <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-lg text-sm flex items-center gap-2">
-          <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+        <div className="bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 text-emerald-800 dark:text-emerald-300 px-4 py-3 rounded-xl text-xs font-semibold flex items-center gap-2 animate-in fade-in">
+          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
           <span>{actionNotice}</span>
         </div>
       )}
 
       {/* Filter and Search Bar */}
-      <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      <div className="bg-card rounded-2xl border border-border p-4 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex items-center gap-3 flex-1">
           <div className="relative flex-1 max-w-md">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <Search className="w-4 h-4 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Tìm theo họ tên, MSSV, tên đăng nhập..."
-              className="w-full text-sm border border-slate-200 rounded-lg pl-9 pr-3 py-2 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#005BAA]/20"
+              placeholder="Tìm theo tên, email Google, MSSV, tên đăng nhập..."
+              className="w-full text-xs border border-border rounded-xl pl-9 pr-3 py-2 bg-background focus:outline-hidden focus:border-primary"
             />
           </div>
           <div className="flex items-center gap-2">
-            <Filter className="w-4 h-4 text-slate-400" />
+            <Filter className="w-4 h-4 text-muted-foreground" />
             <select
               value={roleFilter}
               onChange={(e) => setRoleFilter(e.target.value)}
-              className="text-sm border border-slate-200 rounded-lg px-3 py-2 bg-slate-50"
+              className="text-xs border border-border rounded-xl px-3 py-2 bg-background focus:outline-hidden focus:border-primary font-medium"
             >
               <option value="all">Tất cả vai trò</option>
-              <option value="ADMIN">Quản trị hệ thống</option>
-              <option value="APPROVER">Người duyệt</option>
-              <option value="UNIT_MANAGER">Quản lý đơn vị</option>
-              <option value="LEADER">Lãnh đạo</option>
-              <option value="OFFICER">Cán bộ cá nhân</option>
+              <option value="admin">Quản trị hệ thống (Admin)</option>
+              <option value="lanh_dao">Lãnh đạo</option>
+              <option value="nguoi_duyet">Người duyệt nghiệp vụ</option>
+              <option value="quan_ly_don_vi">Quản lý đơn vị</option>
+              <option value="can_bo_ca_nhan">Cán bộ cá nhân</option>
             </select>
           </div>
         </div>
-        <div className="text-xs text-slate-500 font-medium">
-          Hiển thị {filteredUsers.length} tài khoản
+        <div className="text-xs text-muted-foreground font-semibold">
+          Tổng số: <span className="text-foreground font-bold">{filteredUsers.length}</span> tài khoản
         </div>
       </div>
 
       {/* Main Layout: Accounts Table + Detail / Permission Drawer */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Table 8 cols or full width if none selected */}
-        <div className={`${selectedUser ? 'lg:col-span-7' : 'lg:col-span-12'} bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden`}>
+        <div className={`${selectedUser ? 'lg:col-span-7' : 'lg:col-span-12'} bg-card rounded-2xl border border-border shadow-xs overflow-hidden`}>
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-slate-50 text-slate-600 font-medium text-xs border-b border-slate-200">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-muted/60 text-muted-foreground font-bold uppercase tracking-wider text-[11px] border-b border-border">
                 <tr>
-                  <th className="px-4 py-3">Họ và tên</th>
+                  <th className="px-4 py-3">Họ và tên / Email</th>
                   <th className="px-4 py-3">Tài khoản / MSSV</th>
-                  <th className="px-4 py-3">Vai trò</th>
+                  <th className="px-4 py-3">Vai trò phân quyền</th>
                   <th className="px-4 py-3">Phạm vi đơn vị</th>
                   <th className="px-4 py-3 text-center">Trạng thái</th>
                   <th className="px-4 py-3 text-center">Thao tác</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-border">
                 {filteredUsers.map((u) => {
-                  const scopeUnit = units.find(unit => unit.id === u.scope_unit_id);
+                  const scopeUnit = units.find((unit) => unit.id === u.scope_unit_id);
                   const isSelected = selectedUser?.id === u.id;
+                  const isSuper = isSuperAdminAccount(u);
 
                   return (
                     <tr
                       key={u.id}
                       onClick={() => setSelectedUser(u)}
                       className={`cursor-pointer transition-colors ${
-                        isSelected ? 'bg-blue-50/60' : 'hover:bg-slate-50/50'
+                        isSelected ? 'bg-primary/10' : 'hover:bg-muted/40'
                       }`}
                     >
                       <td className="px-4 py-3">
-                        <div className="font-semibold text-slate-900">{u.full_name}</div>
-                        <div className="text-xs text-slate-400">{u.email}</div>
+                        <div className="flex items-center gap-2">
+                          <div className="font-bold text-foreground flex items-center gap-1.5">
+                            <span>{u.full_name}</span>
+                            {isSuper && (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-rose-500/15 text-rose-600 text-[10px] font-black border border-rose-500/20">
+                                <Crown className="w-3 h-3 text-rose-600" />
+                                Super Admin
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="text-[11px] text-muted-foreground mt-0.5">{u.email}</div>
                       </td>
                       <td className="px-4 py-3">
-                        <span className="font-mono text-xs text-slate-700 font-medium">
-                          {u.username}
+                        <span className="font-mono text-[11px] text-foreground font-semibold">
+                          {u.username || u.email?.split('@')[0]}
                         </span>
                         {u.student_id && (
-                          <div className="text-[11px] text-slate-400">MSSV: {u.student_id}</div>
+                          <div className="text-[10px] text-muted-foreground">MSSV: {u.student_id}</div>
                         )}
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex flex-wrap gap-1">
-                          {u.roles.map(r => getRoleBadge(r))}
+                          {(u.roles || []).map((r) => getRoleBadge(r))}
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-xs text-slate-600">
+                      <td className="px-4 py-3 text-muted-foreground">
                         {scopeUnit ? scopeUnit.name : 'Toàn trường'}
                       </td>
                       <td className="px-4 py-3 text-center">
                         {u.is_active ? (
-                          <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 font-medium">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 text-[11px] font-bold border border-emerald-500/20">
                             <span className="w-1.5 h-1.5 rounded-full bg-emerald-600" />
                             Hoạt động
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-red-50 text-red-700 font-medium">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-destructive/15 text-destructive text-[11px] font-bold border border-destructive/20">
                             <Lock className="w-3 h-3" />
                             Đã khóa
                           </span>
                         )}
                       </td>
                       <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
-                        <button
-                          onClick={() => handleToggleLock(u)}
-                          title={u.is_active ? 'Khóa tài khoản' : 'Mở khóa tài khoản'}
-                          className={`p-1.5 rounded border transition-colors ${
-                            u.is_active 
-                              ? 'text-slate-500 hover:text-red-600 hover:border-red-200 hover:bg-red-50' 
-                              : 'text-emerald-600 hover:bg-emerald-50 border-emerald-200'
-                          }`}
-                        >
-                          {u.is_active ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
-                        </button>
+                        <div className="flex items-center justify-center gap-1">
+                          <button
+                            disabled={isSuper}
+                            onClick={() => handleToggleLock(u)}
+                            title={isSuper ? 'Không thể khóa Super Admin' : u.is_active ? 'Khóa tài khoản' : 'Mở khóa'}
+                            className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
+                              isSuper
+                                ? 'opacity-40 cursor-not-allowed border-border text-muted-foreground'
+                                : u.is_active
+                                ? 'text-muted-foreground hover:text-destructive hover:border-destructive/30 hover:bg-destructive/10'
+                                : 'text-emerald-600 hover:bg-emerald-500/10 border-emerald-500/30'
+                            }`}
+                          >
+                            {u.is_active ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
+                          </button>
+                          {!isSuper && (
+                            <button
+                              onClick={() => handleDeleteUser(u)}
+                              title="Xóa tài khoản"
+                              className="p-1.5 rounded-lg border border-border text-muted-foreground hover:text-destructive hover:border-destructive/30 hover:bg-destructive/10 transition-all cursor-pointer"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );
@@ -312,88 +487,111 @@ export const AdminAccountsView: React.FC = () => {
 
         {/* Right Detail / Edit Panel: 5 cols */}
         {selectedUser && (
-          <div className="lg:col-span-5 bg-white rounded-xl border border-slate-200 p-5 shadow-sm space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <h3 className="font-bold text-slate-900 text-sm">Chi tiết tài khoản & Phân quyền</h3>
-              <button 
-                onClick={() => setSelectedUser(null)}
-                className="text-slate-400 hover:text-slate-600 p-1"
+          <div className="lg:col-span-5 bg-card rounded-2xl border border-border p-5 shadow-sm space-y-4 animate-in fade-in">
+            <div className="flex items-center justify-between pb-3 border-b border-border">
+              <h3 className="font-bold text-foreground text-xs uppercase tracking-wider flex items-center gap-1.5">
+                <Key className="w-4 h-4 text-primary" />
+                <span>Chi tiết & Phân quyền tài khoản</span>
+              </h3>
+              <button
+                onClick={() => {
+                  setSelectedUser(null);
+                  setIsEditing(false);
+                }}
+                className="text-muted-foreground hover:text-foreground p-1 rounded-lg hover:bg-muted cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
             <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-full bg-blue-100 text-[#005BAA] font-bold flex items-center justify-center text-lg">
-                {selectedUser.full_name.slice(-2)}
-              </div>
-              <div>
-                <h4 className="font-bold text-slate-900">{selectedUser.full_name}</h4>
-                <div className="text-xs text-slate-500">Tài khoản: {selectedUser.username} | MSSV: {selectedUser.student_id || 'N/A'}</div>
+              {selectedUser.avatar_url ? (
+                <img
+                  src={selectedUser.avatar_url}
+                  alt={selectedUser.full_name}
+                  className="w-12 h-12 rounded-full object-cover ring-2 ring-primary/20"
+                />
+              ) : (
+                <div className="w-12 h-12 rounded-full bg-primary/10 text-primary font-black flex items-center justify-center text-base">
+                  {selectedUser.avatar_code}
+                </div>
+              )}
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5">
+                  <h4 className="font-black text-foreground text-sm truncate">{selectedUser.full_name}</h4>
+                  {isSuperAdminAccount(selectedUser) && (
+                    <span className="px-1.5 py-0.5 rounded-md bg-rose-500/15 text-rose-600 text-[10px] font-bold border border-rose-500/20 shrink-0">
+                      Super Admin
+                    </span>
+                  )}
+                </div>
+                <div className="text-[11px] text-muted-foreground truncate">{selectedUser.email}</div>
+                <div className="text-[10px] text-primary font-semibold">
+                  MSSV: {selectedUser.student_id || 'CB-HCMUTE'}
+                </div>
               </div>
             </div>
 
             {/* Account Status Card */}
-            <div className="bg-slate-50 rounded-lg p-3 border border-slate-200 text-xs space-y-2">
+            <div className="bg-muted/40 rounded-xl p-3 border border-border text-xs space-y-2">
               <div className="flex justify-between">
-                <span className="text-slate-500">Trạng thái:</span>
-                <span className={`font-semibold ${selectedUser.is_active ? 'text-emerald-700' : 'text-red-600'}`}>
+                <span className="text-muted-foreground">Trạng thái:</span>
+                <span className={`font-bold ${selectedUser.is_active ? 'text-emerald-600' : 'text-destructive'}`}>
                   {selectedUser.is_active ? 'Đang hoạt động' : 'Tài khoản đã bị khóa'}
                 </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-500">Phạm vi dữ liệu:</span>
-                <span className="font-medium text-slate-800">
-                  {units.find(u => u.id === selectedUser.scope_unit_id)?.name || 'Toàn trường'}
+                <span className="text-muted-foreground">Phạm vi dữ liệu:</span>
+                <span className="font-semibold text-foreground">
+                  {units.find((u) => u.id === selectedUser.scope_unit_id)?.name || 'Toàn trường'}
                 </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-500">Email:</span>
-                <span className="text-slate-700">{selectedUser.email}</span>
+                <span className="text-muted-foreground">Cổng mặc định:</span>
+                <span className="font-semibold text-foreground">
+                  {selectedUser.portal_mode === 'admin' ? 'Trang quản trị (Admin)' : 'Trang cán bộ (User)'}
+                </span>
               </div>
             </div>
 
             {/* Roles Selection */}
             <div>
               <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-bold text-slate-800">Vai trò phân bổ</span>
+                <span className="text-xs font-bold text-foreground">Vai trò & Quyền hạn phân bổ</span>
                 {!isEditing && (
                   <button
                     onClick={() => setIsEditing(true)}
-                    className="text-xs text-[#005BAA] font-medium hover:underline flex items-center gap-1"
+                    className="text-xs text-primary font-bold hover:underline flex items-center gap-1 cursor-pointer"
                   >
-                    <Edit className="w-3 h-3" /> Chỉnh sửa vai trò
+                    <Edit className="w-3.5 h-3.5" /> Chỉnh sửa quyền
                   </button>
                 )}
               </div>
 
               {isEditing ? (
-                <div className="space-y-3 p-3 border border-blue-200 rounded-lg bg-blue-50/20">
+                <div className="space-y-3 p-3.5 border border-primary/30 rounded-xl bg-primary/5">
                   <div className="space-y-2">
-                    {[
-                      { id: 'OFFICER', label: 'Cán bộ cá nhân', desc: 'Xem hồ sơ, gửi cập nhật, tự đánh giá' },
-                      { id: 'UNIT_MANAGER', label: 'Quản lý đơn vị', desc: 'Nhập hồ sơ, đề xuất quyết định, đánh giá đơn vị' },
-                      { id: 'APPROVER', label: 'Người duyệt nghiệp vụ', desc: 'Duyệt cập nhật hồ sơ, quyết định nhân sự' },
-                      { id: 'LEADER', label: 'Lãnh đạo', desc: 'Xem tổng hợp, chỉ đọc và xuất báo cáo' },
-                      { id: 'ADMIN', label: 'Quản trị hệ thống', desc: 'Quản lý tài khoản, danh mục, cấu hình hệ thống' }
-                    ].map(r => {
-                      const checked = selectedUser.roles.includes(r.id as any);
+                    {ROLE_OPTIONS.map((r) => {
+                      const isChecked = (selectedUser.roles || [])
+                        .map((role) => normalizeRole(role))
+                        .includes(r.id);
                       return (
-                        <label key={r.id} className="flex items-start gap-2 text-xs cursor-pointer">
+                        <label key={r.id} className="flex items-start gap-2.5 text-xs cursor-pointer p-1.5 rounded-lg hover:bg-background/80 transition-colors">
                           <input
                             type="checkbox"
-                            checked={checked}
+                            checked={isChecked}
                             onChange={(e) => {
-                              const newR = e.target.checked
-                                ? [...selectedUser.roles, r.id as any]
-                                : selectedUser.roles.filter(role => role !== r.id);
-                              setSelectedUser({ ...selectedUser, roles: newR });
+                              const currentNormalized = (selectedUser.roles || []).map((x) => normalizeRole(x));
+                              const newRoles = e.target.checked
+                                ? Array.from(new Set([...currentNormalized, r.id]))
+                                : currentNormalized.filter((role) => role !== r.id);
+                              setSelectedUser({ ...selectedUser, roles: newRoles });
                             }}
-                            className="mt-0.5 rounded text-[#005BAA]"
+                            className="mt-0.5 rounded text-primary"
                           />
-                          <div>
-                            <div className="font-semibold text-slate-900">{r.label}</div>
-                            <div className="text-[11px] text-slate-500">{r.desc}</div>
+                          <div className="flex-1">
+                            <div className="font-bold text-foreground">{r.label}</div>
+                            <div className="text-[11px] text-muted-foreground">{r.desc}</div>
                           </div>
                         </label>
                       );
@@ -401,7 +599,7 @@ export const AdminAccountsView: React.FC = () => {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-semibold text-slate-800 mb-1">
+                    <label className="block text-xs font-bold text-foreground mb-1">
                       Phạm vi đơn vị phụ trách
                     </label>
                     <select
@@ -410,62 +608,83 @@ export const AdminAccountsView: React.FC = () => {
                         const val = e.target.value === 'ALL' ? null : e.target.value;
                         setSelectedUser({ ...selectedUser, scope_unit_id: val });
                       }}
-                      className="w-full text-xs border border-slate-200 rounded-lg p-2 bg-white"
+                      className="w-full text-xs border border-border rounded-xl p-2 bg-background font-medium"
                     >
-                      <option value="ALL">Toàn trường</option>
-                      {units.map(u => (
-                        <option key={u.id} value={u.id}>{u.name}</option>
+                      <option value="ALL">Toàn trường (Tất cả đơn vị Đoàn - Hội)</option>
+                      {units.map((u) => (
+                        <option key={u.id} value={u.id}>
+                          {u.name}
+                        </option>
                       ))}
                     </select>
                   </div>
 
-                  <div className="flex items-center justify-end gap-2 pt-2">
+                  <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
                     <button
                       type="button"
                       onClick={() => setIsEditing(false)}
-                      className="px-3 py-1.5 text-xs text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50"
+                      className="px-3 py-1.5 text-xs text-muted-foreground bg-card border border-border rounded-xl hover:bg-muted font-semibold cursor-pointer"
                     >
                       Hủy
                     </button>
                     <button
                       type="button"
-                      onClick={() => handleSaveRoles(selectedUser.roles, selectedUser.scope_unit_id || null)}
-                      className="px-3 py-1.5 text-xs font-medium text-white bg-[#005BAA] rounded-lg hover:bg-[#004785]"
+                      onClick={() =>
+                        handleSaveRoles(
+                          (selectedUser.roles || []).map((r) => normalizeRole(r)),
+                          selectedUser.scope_unit_id || null
+                        )
+                      }
+                      className="px-3.5 py-1.5 text-xs font-bold text-primary-foreground bg-primary rounded-xl hover:bg-primary/90 shadow-sm cursor-pointer"
                     >
-                      Lưu thay đổi
+                      Lưu phân quyền
                     </button>
                   </div>
                 </div>
               ) : (
                 <div className="flex flex-wrap gap-1.5">
-                  {selectedUser.roles.map(r => getRoleBadge(r))}
+                  {(selectedUser.roles || []).map((r) => getRoleBadge(r))}
                 </div>
               )}
             </div>
 
             {/* Quick Actions */}
-            <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-3">
+            <div className="pt-3 border-t border-border flex items-center justify-between gap-2">
               <button
                 type="button"
+                disabled={isSuperAdminAccount(selectedUser)}
                 onClick={() => handleToggleLock(selectedUser)}
-                className={`flex-1 py-2 px-3 text-xs font-medium rounded-lg border transition-colors flex items-center justify-center gap-1.5 ${
-                  selectedUser.is_active
-                    ? 'border-red-200 text-red-600 hover:bg-red-50'
-                    : 'border-emerald-200 text-emerald-700 hover:bg-emerald-50'
+                className={`flex-1 py-2 px-3 text-xs font-bold rounded-xl border transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                  isSuperAdminAccount(selectedUser)
+                    ? 'opacity-40 cursor-not-allowed border-border text-muted-foreground'
+                    : selectedUser.is_active
+                    ? 'border-destructive/30 text-destructive hover:bg-destructive/10'
+                    : 'border-emerald-500/30 text-emerald-600 hover:bg-emerald-500/10'
                 }`}
               >
                 {selectedUser.is_active ? (
                   <>
                     <Lock className="w-3.5 h-3.5" />
-                    Khóa tài khoản này
+                    <span>Khóa tài khoản</span>
                   </>
                 ) : (
                   <>
                     <Unlock className="w-3.5 h-3.5" />
-                    Mở khóa tài khoản
+                    <span>Mở khóa tài khoản</span>
                   </>
                 )}
               </button>
+
+              {!isSuperAdminAccount(selectedUser) && (
+                <button
+                  type="button"
+                  onClick={() => handleDeleteUser(selectedUser)}
+                  className="py-2 px-3 text-xs font-bold rounded-xl border border-destructive/30 text-destructive hover:bg-destructive/10 transition-all flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Xóa</span>
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -473,98 +692,152 @@ export const AdminAccountsView: React.FC = () => {
 
       {/* Add New User Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="bg-white rounded-xl max-w-lg w-full p-6 shadow-xl space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <h3 className="font-bold text-slate-900 text-base">Tạo tài khoản người dùng mới</h3>
-              <button onClick={() => setShowAddModal(false)} className="text-slate-400 hover:text-slate-600">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-in fade-in">
+          <div className="bg-card rounded-3xl max-w-lg w-full p-6 sm:p-7 shadow-2xl border border-border space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-border">
+              <div>
+                <h3 className="font-black text-foreground text-base">Thêm tài khoản & Phân quyền Admin</h3>
+                <p className="text-xs text-muted-foreground">
+                  Cấp quyền Quản trị viên hoặc quyền quản lý cho cán bộ theo email Google.
+                </p>
+              </div>
+              <button
+                onClick={() => setShowAddModal(false)}
+                className="text-muted-foreground hover:text-foreground p-1 rounded-lg hover:bg-muted cursor-pointer"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleCreateUser} className="space-y-3">
+            <form onSubmit={handleCreateUser} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-800 mb-1">
-                  Họ và tên cán bộ <span className="text-red-500">*</span>
+                <label className="block text-xs font-bold text-foreground mb-1">
+                  Họ và tên cán bộ <span className="text-destructive">*</span>
                 </label>
                 <input
                   type="text"
                   required
                   value={newFullName}
                   onChange={(e) => setNewFullName(e.target.value)}
-                  placeholder="Ví dụ: Hoàng Văn An"
-                  className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 bg-slate-50"
+                  placeholder="Ví dụ: Thầy Lê Xuân Thân, Nguyễn Văn A..."
+                  className="w-full text-xs border border-border rounded-xl px-3.5 py-2.5 bg-background focus:outline-hidden focus:border-primary"
                 />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-foreground mb-1">
+                  Email Google Workspace (@hcmute.edu.vn hoặc Gmail) <span className="text-destructive">*</span>
+                </label>
+                <input
+                  type="email"
+                  required
+                  value={newEmail}
+                  onChange={(e) => setNewEmail(e.target.value)}
+                  placeholder="canbo@hcmute.edu.vn"
+                  className="w-full text-xs border border-border rounded-xl px-3.5 py-2.5 bg-background focus:outline-hidden focus:border-primary"
+                />
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  Khi người dùng này đăng nhập bằng Google, hệ thống sẽ tự động cấp các quyền hạn được chọn bên dưới.
+                </p>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-800 mb-1">
-                    Tên đăng nhập <span className="text-red-500">*</span>
+                  <label className="block text-xs font-bold text-foreground mb-1">
+                    Tên đăng nhập (Username)
                   </label>
                   <input
                     type="text"
-                    required
                     value={newUsername}
                     onChange={(e) => setNewUsername(e.target.value)}
-                    placeholder="hvanan"
-                    className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 bg-slate-50"
+                    placeholder="ví dụ: thanlx, nva..."
+                    className="w-full text-xs border border-border rounded-xl px-3.5 py-2.5 bg-background focus:outline-hidden focus:border-primary"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-800 mb-1">
-                    Mã số sinh viên (nếu có)
+                  <label className="block text-xs font-bold text-foreground mb-1">
+                    Mã số sinh viên / Mã CB
                   </label>
                   <input
                     type="text"
                     value={newStudentId}
                     onChange={(e) => setNewStudentId(e.target.value)}
-                    placeholder="23110099"
-                    className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 bg-slate-50"
+                    placeholder="23110099 hoặc CB-01"
+                    className="w-full text-xs border border-border rounded-xl px-3.5 py-2.5 bg-background focus:outline-hidden focus:border-primary"
                   />
                 </div>
               </div>
 
+              {/* Roles selection checkboxes */}
               <div>
-                <label className="block text-xs font-semibold text-slate-800 mb-1">Email</label>
-                <input
-                  type="email"
-                  value={newEmail}
-                  onChange={(e) => setNewEmail(e.target.value)}
-                  placeholder="hvanan@example.com"
-                  className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 bg-slate-50"
-                />
+                <label className="block text-xs font-bold text-foreground mb-1.5">
+                  Phân vai trò truy cập <span className="text-destructive">*</span>
+                </label>
+                <div className="space-y-2 p-3 rounded-2xl bg-muted/40 border border-border">
+                  {ROLE_OPTIONS.map((r) => {
+                    const isChecked = newRoles.includes(r.id);
+                    return (
+                      <label key={r.id} className="flex items-start gap-2.5 text-xs cursor-pointer p-1 rounded-lg hover:bg-background/80 transition-colors">
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setNewRoles([...newRoles, r.id]);
+                            } else {
+                              setNewRoles(newRoles.filter((item) => item !== r.id));
+                            }
+                          }}
+                          className="mt-0.5 rounded text-primary"
+                        />
+                        <div className="flex-1">
+                          <div className="font-bold text-foreground flex items-center gap-1.5">
+                            <span>{r.label}</span>
+                            {r.id === 'admin' && (
+                              <span className="px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-700 text-[10px] font-bold">
+                                Toàn quyền
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[11px] text-muted-foreground">{r.desc}</div>
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-800 mb-1">
-                  Phạm vi đơn vị
+                <label className="block text-xs font-bold text-foreground mb-1">
+                  Phạm vi đơn vị phụ trách
                 </label>
                 <select
                   value={newScopeUnit}
                   onChange={(e) => setNewScopeUnit(e.target.value)}
-                  className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 bg-slate-50"
+                  className="w-full text-xs border border-border rounded-xl px-3.5 py-2.5 bg-background font-medium focus:outline-hidden focus:border-primary"
                 >
-                  <option value="ALL">Toàn trường</option>
-                  {units.map(u => (
-                    <option key={u.id} value={u.id}>{u.name}</option>
+                  <option value="ALL">Toàn trường (Tất cả đơn vị Đoàn - Hội)</option>
+                  {units.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.name}
+                    </option>
                   ))}
                 </select>
               </div>
 
-              <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
+              <div className="flex justify-end gap-3 pt-3 border-t border-border">
                 <button
                   type="button"
                   onClick={() => setShowAddModal(false)}
-                  className="px-4 py-2 text-xs font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50"
+                  className="px-4 py-2.5 text-xs font-bold text-muted-foreground border border-border rounded-xl hover:bg-muted cursor-pointer"
                 >
                   Hủy
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 text-xs font-semibold text-white bg-[#005BAA] rounded-lg hover:bg-[#004785]"
+                  className="px-5 py-2.5 text-xs font-bold text-primary-foreground bg-primary rounded-xl hover:bg-primary/90 shadow-md cursor-pointer"
                 >
-                  Tạo tài khoản
+                  Lưu & Cấp quyền tài khoản
                 </button>
               </div>
             </form>

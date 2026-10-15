@@ -17,10 +17,11 @@ import {
   Smartphone,
   AlertCircle,
   ExternalLink,
+  LogOut,
 } from 'lucide-react';
 
 export default function MyAccountView() {
-  const { currentUser, setUserTab } = useApp();
+  const { currentUser, setUserTab, signOut } = useApp();
 
   const [activeTab, setActiveTab] = useState<'dang_nhap' | 'bao_mat' | 'thong_bao'>('bao_mat');
 
@@ -72,7 +73,7 @@ export default function MyAccountView() {
           </p>
         </div>
         <span className="text-[11px] text-muted-foreground">
-          Dữ liệu minh họa | Cập nhật ngày 13/10/2026
+          Cập nhật ngày 13/10/2026
         </span>
       </div>
 
@@ -111,29 +112,53 @@ export default function MyAccountView() {
             </h3>
 
             <div className="flex items-center gap-4">
-              <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary text-xl font-black shadow-xs">
-                {currentUser.avatar_code}
-              </div>
+              {currentUser.avatar_url ? (
+                <img
+                  src={currentUser.avatar_url}
+                  alt={currentUser.full_name}
+                  className="w-16 h-16 rounded-full object-cover ring-2 ring-primary/20 shadow-xs"
+                />
+              ) : (
+                <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary text-xl font-black shadow-xs">
+                  {currentUser.avatar_code}
+                </div>
+              )}
               <div className="space-y-0.5">
                 <h4 className="text-base font-black text-foreground">{currentUser.full_name}</h4>
                 <p className="text-xs text-muted-foreground font-semibold">
-                  MSSV: {currentUser.student_id}
+                  MSSV: {currentUser.student_id || 'CB-HCMUTE'}
                 </p>
                 <p className="text-xs text-muted-foreground">{currentUser.email}</p>
+                {currentUser.roles.includes('admin') && (
+                  <span className="inline-block mt-1 px-2.5 py-0.5 rounded-full bg-rose-500/15 text-rose-600 text-[10px] font-bold border border-rose-500/20">
+                    Quản trị viên hệ thống (Admin)
+                  </span>
+                )}
               </div>
             </div>
 
             <p className="text-xs text-muted-foreground">
-              Liên kết với hồ sơ cán bộ trong hệ thống.
+              Tài khoản liên kết với Google Workspace Nhà trường và hồ sơ cán bộ Đoàn - Hội.
             </p>
 
-            <button
-              onClick={() => setUserTab('ho_so')}
-              className="px-4 py-2 rounded-xl border border-primary/30 bg-primary/5 hover:bg-primary/15 text-primary text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5"
-            >
-              <span>Xem hồ sơ</span>
-              <ExternalLink className="h-3 w-3" />
-            </button>
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                onClick={() => setUserTab('ho_so')}
+                className="px-4 py-2 rounded-xl border border-primary/30 bg-primary/5 hover:bg-primary/15 text-primary text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5"
+              >
+                <span>Xem hồ sơ</span>
+                <ExternalLink className="h-3 w-3" />
+              </button>
+              <button
+                onClick={async () => {
+                  await signOut();
+                }}
+                className="px-4 py-2 rounded-xl border border-rose-500/30 bg-rose-500/5 hover:bg-rose-500/15 text-rose-600 text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5"
+              >
+                <LogOut className="h-3.5 w-3.5" />
+                <span>Đăng xuất</span>
+              </button>
+            </div>
           </div>
 
           {/* Card: Đổi mật khẩu */}

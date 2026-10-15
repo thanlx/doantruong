@@ -953,7 +953,7 @@ export async function signInWithGoogleOAuth(): Promise<{ error: string | null }>
   }
 
   try {
-    let redirectUrl = 'https://yhcm-ute2.vercel.app';
+    let redirectUrl = 'https://doantruong.vercel.app';
     if (typeof window !== 'undefined') {
       redirectUrl = window.location.origin;
     }

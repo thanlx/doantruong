@@ -18,6 +18,7 @@ import {
   Menu,
   Sparkles,
   HelpCircle,
+  LogOut,
 } from 'lucide-react';
 import { UserRole } from '@/types';
 
@@ -37,6 +38,7 @@ export default function Header({ onOpenMobileMenu, onOpenTestModal }: HeaderProp
     notifications,
     setUserTab,
     setAdminTab,
+    signOut,
   } = useApp();
 
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
@@ -185,12 +187,20 @@ export default function Header({ onOpenMobileMenu, onOpenTestModal }: HeaderProp
             onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
             className="flex items-center gap-2 rounded-xl p-1 sm:px-2 sm:py-1 hover:bg-muted transition-colors cursor-pointer"
           >
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground shadow-xs">
-              {currentUser.avatar_code}
-            </div>
+            {currentUser.avatar_url ? (
+              <img
+                src={currentUser.avatar_url}
+                alt={currentUser.full_name}
+                className="w-8 h-8 rounded-full object-cover ring-1 ring-primary/30"
+              />
+            ) : (
+              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground shadow-xs">
+                {currentUser.avatar_code}
+              </div>
+            )}
             <div className="hidden sm:flex flex-col text-left">
               <span className="text-xs font-bold text-foreground leading-tight">{currentUser.full_name}</span>
-              <span className="text-[10px] text-muted-foreground font-medium">MSSV: {currentUser.student_id}</span>
+              <span className="text-[10px] text-muted-foreground font-medium">MSSV: {currentUser.student_id || 'CB-HCMUTE'}</span>
             </div>
             <ChevronDown className="h-3 w-3 text-muted-foreground hidden sm:block" />
           </button>
@@ -198,13 +208,21 @@ export default function Header({ onOpenMobileMenu, onOpenTestModal }: HeaderProp
           {isUserMenuOpen && (
             <div className="absolute right-0 mt-2 w-64 rounded-2xl border border-border bg-card p-3 shadow-xl z-50 animate-in fade-in zoom-in-95">
               <div className="flex items-center gap-2.5 pb-3 border-b border-border">
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary text-sm font-bold text-primary-foreground">
-                  {currentUser.avatar_code}
-                </div>
-                <div>
-                  <h4 className="text-xs font-bold text-foreground">{currentUser.full_name}</h4>
-                  <p className="text-[11px] text-muted-foreground">{currentUser.email}</p>
-                  <p className="text-[10px] text-primary font-semibold">MSSV: {currentUser.student_id}</p>
+                {currentUser.avatar_url ? (
+                  <img
+                    src={currentUser.avatar_url}
+                    alt={currentUser.full_name}
+                    className="w-10 h-10 rounded-full object-cover ring-2 ring-primary/30"
+                  />
+                ) : (
+                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary text-sm font-bold text-primary-foreground">
+                    {currentUser.avatar_code}
+                  </div>
+                )}
+                <div className="min-w-0 flex-1">
+                  <h4 className="text-xs font-bold text-foreground truncate">{currentUser.full_name}</h4>
+                  <p className="text-[11px] text-muted-foreground truncate">{currentUser.email}</p>
+                  <p className="text-[10px] text-primary font-semibold">MSSV: {currentUser.student_id || 'CB-HCMUTE'}</p>
                 </div>
               </div>
 
@@ -241,15 +259,26 @@ export default function Header({ onOpenMobileMenu, onOpenTestModal }: HeaderProp
                 </div>
               </div>
 
-              <div className="pt-2">
+              <div className="pt-2 space-y-1">
                 <button
                   onClick={() => {
                     setUserTab('tai_khoan');
                     setIsUserMenuOpen(false);
                   }}
-                  className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-medium text-foreground hover:bg-muted transition-colors"
+                  className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-medium text-foreground hover:bg-muted transition-colors flex items-center gap-2"
                 >
-                  Thông tin tài khoản & bảo mật
+                  <User className="w-3.5 h-3.5 text-muted-foreground" />
+                  <span>Thông tin tài khoản & bảo mật</span>
+                </button>
+                <button
+                  onClick={async () => {
+                    setIsUserMenuOpen(false);
+                    await signOut();
+                  }}
+                  className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-semibold text-rose-600 hover:bg-rose-500/10 transition-colors flex items-center gap-2 cursor-pointer"
+                >
+                  <LogOut className="w-3.5 h-3.5 text-rose-600" />
+                  <span>Đăng xuất</span>
                 </button>
               </div>
             </div>

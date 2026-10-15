@@ -34,6 +34,9 @@ import AdminAccountsView from '@/components/views/AdminAccountsView';
 import AdminConfigView from '@/components/views/AdminConfigView';
 import AdminAuditLogsView from '@/components/views/AdminAuditLogsView';
 
+import LoginPage from '@/components/LoginPage';
+import { Loader2 } from 'lucide-react';
+
 // Modals
 import TestScenarioModal from '@/components/modals/TestScenarioModal';
 
@@ -42,10 +45,30 @@ export default function Home() {
     portalMode,
     userTab,
     adminTab,
+    authUser,
+    isAuthLoading,
   } = useApp();
 
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
   const [isTestModalOpen, setIsTestModalOpen] = useState(false);
+
+  // 1. Loading State
+  if (isAuthLoading) {
+    return (
+      <div className="min-h-dvh flex flex-col bg-background text-foreground items-center justify-center p-6">
+        <div className="w-16 h-16 rounded-2xl bg-primary/10 text-primary flex items-center justify-center animate-pulse mb-4">
+          <Loader2 className="w-8 h-8 animate-spin text-red-600" />
+        </div>
+        <h2 className="text-base font-bold text-foreground">Hệ thống Quản lý Cán bộ Đoàn - Hội HCMUTE</h2>
+        <p className="text-xs text-muted-foreground mt-1">Đang kiểm tra phiên làm việc bảo mật...</p>
+      </div>
+    );
+  }
+
+  // 2. Auth Gate: Nếu chưa đăng nhập, chỉ hiển thị trang Đăng nhập
+  if (!authUser) {
+    return <LoginPage />;
+  }
 
   // Render view tương ứng theo portalMode và Tab hiện tại
   const renderCurrentView = () => {

@@ -37,7 +37,10 @@ import {
   INITIAL_SYSTEM_CONFIG,
   DEFAULT_APP_USER,
   INITIAL_USERS,
+  SUPER_ADMIN_USER,
 } from '@/lib/mockData';
+import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import { signInWithGoogleOAuth, signOutSupabase } from '@/lib/supabaseService';
 
 export type UserTab =
   | 'trang_chu'
@@ -74,6 +77,15 @@ interface AppContextType {
   switchUserRole: (role: UserRole) => void;
   updateUserScope: (scopeId: string, scopeName: string) => void;
   hasPermission: (action: string) => boolean;
+
+  // Google Authentication & Security
+  authUser: any;
+  isAuthLoading: boolean;
+  isAuthenticated: boolean;
+  signInWithGoogle: () => Promise<{ error: string | null }>;
+  signOut: () => Promise<void>;
+  loginAsSuperAdminDev: () => void;
+  isSupabaseConnected: boolean;
 
   // Master Data
   subsystems: SubsystemInfo[];
@@ -167,26 +179,32 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 const STORAGE_KEYS = {
-  PORTAL_MODE: 'qncb_portal_mode',
-  USER_TAB: 'qncb_user_tab',
-  ADMIN_TAB: 'qncb_admin_tab',
-  PROFILES: 'qncb_profiles_v1',
-  DECISIONS: 'qncb_decisions_v1',
-  REQUESTS: 'qncb_requests_v1',
-  PERIODS: 'qncb_periods_v1',
-  EVALUATIONS: 'qncb_evaluations_v1',
-  NOTIFICATIONS: 'qncb_notifications_v1',
-  AUDIT_LOGS: 'qncb_audit_logs_v1',
-  CONFIG: 'qncb_config_v1',
-  UNITS: 'qncb_units_v1',
-  POSITIONS: 'qncb_positions_v1',
+  PORTAL_MODE: 'qncb_portal_mode_v2',
+  USER_TAB: 'qncb_user_tab_v2',
+  ADMIN_TAB: 'qncb_admin_tab_v2',
+  PROFILES: 'qncb_profiles_v2',
+  DECISIONS: 'qncb_decisions_v2',
+  REQUESTS: 'qncb_requests_v2',
+  PERIODS: 'qncb_periods_v2',
+  EVALUATIONS: 'qncb_evaluations_v2',
+  NOTIFICATIONS: 'qncb_notifications_v2',
+  AUDIT_LOGS: 'qncb_audit_logs_v2',
+  CONFIG: 'qncb_config_v2',
+  UNITS: 'qncb_units_v2',
+  POSITIONS: 'qncb_positions_v2',
+  USERS: 'qncb_users_v2',
 };
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [portalMode, setPortalModeState] = useState<'user' | 'admin'>('user');
+  const [portalMode, setPortalModeState] = useState<'user' | 'admin'>('admin');
   const [userTab, setUserTabState] = useState<UserTab>('trang_chu');
   const [adminTab, setAdminTabState] = useState<AdminTab>('tong_quan');
-  const [currentUser, setCurrentUser] = useState<AppUser>(DEFAULT_APP_USER);
+  const [currentUser, setCurrentUser] = useState<AppUser>(SUPER_ADMIN_USER);
+
+  // Authentication State
+  const [authUser, setAuthUser] = useState<any>(null);
+  const [isAuthLoading, setIsAuthLoading] = useState<boolean>(true);
+  const isSupabaseConnected = isSupabaseConfigured;
 
   // Master State
   const [subsystems] = useState<SubsystemInfo[]>(INITIAL_SUBSYSTEMS);
@@ -217,13 +235,80 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   );
 
   // Selection pointers
-  const [selectedProfileId, setSelectedProfileId] = useState<string | null>('prof_minh_anh');
-  const [selectedUnitId, setSelectedUnitId] = useState<string | null>('unit_clb_truyen_thong');
-  const [selectedDecisionId, setSelectedDecisionId] = useState<string | null>('dec_145');
-  const [selectedRequestId, setSelectedRequestId] = useState<string | null>('HS-0012');
+  const [selectedProfileId, setSelectedProfileId] = useState<string | null>(
+    INITIAL_PROFILES[0]?.id || 'prof_thanlx'
+  );
+  const [selectedUnitId, setSelectedUnitId] = useState<string | null>('unit_doan_truong');
+  const [selectedDecisionId, setSelectedDecisionId] = useState<string | null>(null);
+  const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
   const [selectedPeriodId, setSelectedPeriodId] = useState<string>('period_2026_10');
 
-  // Load persisted state on mount
+  // Đồng bộ hóa thông tin người dùng Google sang AppUser & phân quyền
+  const syncAuthUserToAppUser = useCallback((user: any, userList: AppUser[]) => {
+    const email = (user?.email || '').trim().toLowerCase();
+    const isSuper = email === 'thanlx@hcmute.edu.vn' || email === 'lexuanthanspkt@gmail.com';
+
+    if (isSuper) {
+      const superUser: AppUser = {
+        id: 'user_thanlx',
+        profile_id: 'prof_thanlx',
+        full_name: 'Lê Xuân Thân',
+        student_id: 'CB-HCMUTE',
+        username: 'thanlx',
+        email: user.email || 'thanlx@hcmute.edu.vn',
+        avatar_code: 'XT',
+        avatar_url: user.user_metadata?.avatar_url,
+        roles: ['admin', 'lanh_dao', 'nguoi_duyet', 'quan_ly_don_vi', 'can_bo_ca_nhan'],
+        current_role: 'admin',
+        scope_unit_id: 'all',
+        scope_unit_name: 'Toàn trường',
+        portal_mode: 'admin',
+        is_active: true,
+      };
+      setCurrentUser(superUser);
+      setPortalModeState('admin');
+      return superUser;
+    }
+
+    const matched = userList.find((u) => u.email.trim().toLowerCase() === email);
+    if (matched) {
+      const updated: AppUser = {
+        ...matched,
+        avatar_url: user.user_metadata?.avatar_url || matched.avatar_url,
+        full_name: matched.full_name || user.user_metadata?.full_name || email,
+      };
+      setCurrentUser(updated);
+      setPortalModeState(updated.roles.includes('admin') ? 'admin' : 'user');
+      return updated;
+    }
+
+    // Tài khoản Google mới đăng nhập vào hệ thống
+    const newUser: AppUser = {
+      id: `user_${user.id || Date.now()}`,
+      profile_id: `prof_${user.id || Date.now()}`,
+      full_name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'Cán bộ Đoàn - Hội',
+      student_id: user.user_metadata?.student_id || '',
+      username: user.email?.split('@')[0] || 'cb_user',
+      email: user.email,
+      avatar_code: (user.user_metadata?.full_name || user.email || 'CB').slice(0, 2).toUpperCase(),
+      avatar_url: user.user_metadata?.avatar_url,
+      roles: ['can_bo_ca_nhan'],
+      current_role: 'can_bo_ca_nhan',
+      scope_unit_id: null,
+      scope_unit_name: 'Đoàn trường',
+      portal_mode: 'user',
+      is_active: true,
+    };
+    setCurrentUser(newUser);
+    setPortalModeState('user');
+    setUsers((prev) => {
+      if (prev.some((u) => u.email.trim().toLowerCase() === email)) return prev;
+      return [...prev, newUser];
+    });
+    return newUser;
+  }, []);
+
+  // Load persisted state & Google Auth session on mount
   useEffect(() => {
     if (typeof window === 'undefined') return;
     try {
@@ -253,10 +338,131 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       const savedAuditLogs = localStorage.getItem(STORAGE_KEYS.AUDIT_LOGS);
       if (savedAuditLogs) setAuditLogs(JSON.parse(savedAuditLogs));
+
+      const savedUsers = localStorage.getItem(STORAGE_KEYS.USERS);
+      let loadedUsers: AppUser[] = INITIAL_USERS;
+      if (savedUsers) {
+        try {
+          loadedUsers = JSON.parse(savedUsers);
+          if (!loadedUsers.some((u) => u.email.toLowerCase() === 'thanlx@hcmute.edu.vn')) {
+            loadedUsers.unshift(SUPER_ADMIN_USER);
+          }
+          setUsers(loadedUsers);
+        } catch (e) {}
+      }
+
+      // Check Supabase Google session
+      if (supabase && isSupabaseConfigured) {
+        supabase.auth.getSession().then(({ data: { session } }) => {
+          if (session?.user) {
+            setAuthUser(session.user);
+            syncAuthUserToAppUser(session.user, loadedUsers);
+          } else {
+            const devEmail = localStorage.getItem('qncb_dev_session');
+            if (devEmail) {
+              const mockDev = { email: devEmail, user_metadata: { full_name: 'Lê Xuân Thân' } };
+              setAuthUser(mockDev);
+              syncAuthUserToAppUser(mockDev, loadedUsers);
+            }
+          }
+          setIsAuthLoading(false);
+        });
+
+        const {
+          data: { subscription },
+        } = supabase.auth.onAuthStateChange((_event, session) => {
+          if (session?.user) {
+            setAuthUser(session.user);
+            syncAuthUserToAppUser(session.user, loadedUsers);
+          } else {
+            const devEmail = localStorage.getItem('qncb_dev_session');
+            if (devEmail) {
+              const mockDev = { email: devEmail, user_metadata: { full_name: 'Lê Xuân Thân' } };
+              setAuthUser(mockDev);
+            } else {
+              setAuthUser(null);
+            }
+          }
+          setIsAuthLoading(false);
+        });
+
+        return () => {
+          subscription.unsubscribe();
+        };
+      } else {
+        const devEmail = localStorage.getItem('qncb_dev_session');
+        if (devEmail) {
+          const mockDev = { email: devEmail, user_metadata: { full_name: 'Lê Xuân Thân' } };
+          setAuthUser(mockDev);
+          syncAuthUserToAppUser(mockDev, loadedUsers);
+        }
+        setIsAuthLoading(false);
+      }
     } catch (e) {
       console.warn('Could not parse persisted state:', e);
+      setIsAuthLoading(false);
     }
+  }, [syncAuthUserToAppUser]);
+
+  // Persist state updates to localStorage
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    localStorage.setItem(STORAGE_KEYS.PROFILES, JSON.stringify(profiles));
+  }, [profiles]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    localStorage.setItem(STORAGE_KEYS.DECISIONS, JSON.stringify(decisions));
+  }, [decisions]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    localStorage.setItem(STORAGE_KEYS.REQUESTS, JSON.stringify(updateRequests));
+  }, [updateRequests]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    localStorage.setItem(STORAGE_KEYS.EVALUATIONS, JSON.stringify(evaluations));
+  }, [evaluations]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    localStorage.setItem(STORAGE_KEYS.NOTIFICATIONS, JSON.stringify(notifications));
+  }, [notifications]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    localStorage.setItem(STORAGE_KEYS.AUDIT_LOGS, JSON.stringify(auditLogs));
+  }, [auditLogs]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
+  }, [users]);
+
+  // Google OAuth Actions
+  const signInWithGoogle = useCallback(async () => {
+    return await signInWithGoogleOAuth();
   }, []);
+
+  const signOut = useCallback(async () => {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('qncb_dev_session');
+    }
+    if (supabase && isSupabaseConfigured) {
+      await signOutSupabase();
+    }
+    setAuthUser(null);
+  }, []);
+
+  const loginAsSuperAdminDev = useCallback(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('qncb_dev_session', 'thanlx@hcmute.edu.vn');
+    }
+    const devUser = { email: 'thanlx@hcmute.edu.vn', user_metadata: { full_name: 'Lê Xuân Thân' } };
+    setAuthUser(devUser);
+    syncAuthUserToAppUser(devUser, users);
+  }, [syncAuthUserToAppUser, users]);
 
   // Save changes to localStorage
   const setPortalMode = useCallback((mode: 'user' | 'admin') => {
@@ -1135,11 +1341,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setNotifications(INITIAL_NOTIFICATIONS);
     setAuditLogs(INITIAL_AUDIT_LOGS);
     setSystemConfig(INITIAL_SYSTEM_CONFIG);
-    setCurrentUser(DEFAULT_APP_USER);
-    setSelectedProfileId('prof_minh_anh');
-    setSelectedUnitId('unit_clb_truyen_thong');
-    setSelectedDecisionId('dec_145');
-    setSelectedRequestId('HS-0012');
+    setCurrentUser(SUPER_ADMIN_USER);
+    setUsers(INITIAL_USERS);
+    setSelectedProfileId(INITIAL_PROFILES[0]?.id || 'prof_thanlx');
+    setSelectedUnitId('unit_doan_truong');
+    setSelectedDecisionId(null);
+    setSelectedRequestId(null);
     setSelectedPeriodId('period_2026_10');
   }, []);
 
@@ -1278,6 +1485,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         switchUserRole,
         updateUserScope,
         hasPermission,
+
+        // Auth
+        authUser,
+        isAuthLoading,
+        isAuthenticated: !!authUser,
+        isSupabaseConnected,
+        signInWithGoogle,
+        signOut,
+        loginAsSuperAdminDev,
 
         subsystems,
         units,
