@@ -117,7 +117,7 @@ export default function AdminProfilesView() {
   const [excelFileName, setExcelFileName] = useState<string | null>(null);
   const [parsedRows, setParsedRows] = useState<ParsedExcelRow[]>([]);
   const [isExcelPreviewOpen, setIsExcelPreviewOpen] = useState(false);
-  const [duplicateMode, setDuplicateMode] = useState<'update' | 'skip'>('update');
+  const [duplicateMode, setDuplicateMode] = useState<'update' | 'skip' | 'replace'>('update');
 
   const showNotice = (msg: string) => {
     setNotice(msg);
@@ -264,52 +264,175 @@ export default function AdminProfilesView() {
         const ws = wb.Sheets[wsname];
         const rawJson: any[] = XLSX.utils.sheet_to_json(ws, { defval: '' });
 
+        const normalizeName = (s: string) =>
+          String(s || '')
+            .trim()
+            .toLowerCase()
+            .replace(/\s+/g, ' ');
+
+        const isPlaceholderCode = (val: string) => {
+          const v = String(val || '').trim().toLowerCase();
+          return (
+            !v ||
+            v === '-' ||
+            v === '--' ||
+            v === '—' ||
+            v === 'không' ||
+            v === 'khong' ||
+            v === 'n/a' ||
+            v === 'na' ||
+            v === 'none' ||
+            v === 'null' ||
+            v === 'cbvc' ||
+            v === 'cb' ||
+            v === 'gv' ||
+            v === 'chưa có' ||
+            v === 'chua co' ||
+            v === '0'
+          );
+        };
+
+        const isPlaceholderEmail = (val: string) => {
+          const v = String(val || '').trim().toLowerCase();
+          if (!v || !v.includes('@')) return true;
+          return isPlaceholderCode(v.split('@')[0]);
+        };
+
+        const getCell = (row: any, ...keys: string[]) => {
+          for (const k of keys) {
+            if (row[k] !== undefined && String(row[k]).trim() !== '') return String(row[k]).trim();
+          }
+          const rawKeys = Object.keys(row);
+          for (const k of keys) {
+            const foundKey = rawKeys.find((rk) => rk.trim().toLowerCase() === k.trim().toLowerCase());
+            if (foundKey && String(row[foundKey]).trim() !== '') {
+              return String(row[foundKey]).trim();
+            }
+          }
+          return '';
+        };
+
+        // Quét trước để phát hiện các mã MSSV / Email bị dùng chung cho nhiều người khác tên (VD: Đoàn CBVC hoặc copy từ dòng mẫu Nguyễn Văn Minh)
+        const codeNamesMap = new Map<string, Set<string>>();
+        const emailNamesMap = new Map<string, Set<string>>();
+
+        rawJson.forEach((row) => {
+          const fName = normalizeName(
+            getCell(row, 'Họ và tên', 'Họ tên', 'Ho va ten', 'Ho ten', 'full_name', 'HỌ VÀ TÊN', 'Tên cán bộ')
+          );
+          if (!fName) return;
+          const sId = getCell(
+            row,
+            'MSSV',
+            'Mã số SV/CB',
+            'Mã cán bộ',
+            'Mã CB',
+            'MSCB',
+            'Mã viên chức',
+            'Mã SV',
+            'MSSV/MSCB',
+            'student_id'
+          ).toLowerCase();
+          const em = getCell(row, 'Email', 'email', 'EMAIL', 'Thư điện tử').toLowerCase();
+          if (sId && !isPlaceholderCode(sId)) {
+            if (!codeNamesMap.has(sId)) codeNamesMap.set(sId, new Set());
+            codeNamesMap.get(sId)!.add(fName);
+          }
+          if (em && !isPlaceholderEmail(em)) {
+            if (!emailNamesMap.has(em)) emailNamesMap.set(em, new Set());
+            emailNamesMap.get(em)!.add(fName);
+          }
+        });
+
+        let autoIdx = 1;
         const analyzed: ParsedExcelRow[] = rawJson.map((row, idx) => {
-          const fullName = String(
-            row['Họ và tên'] || row['Ho va ten'] || row.full_name || row['HỌ VÀ TÊN'] || ''
-          ).trim();
-          const studentId = String(
-            row['MSSV'] || row['Mã số SV/CB'] || row['Mã cán bộ'] || row.student_id || ''
-          ).trim();
-          const email = String(
-            row['Email'] ||
-              row.email ||
-              (studentId ? `${studentId.toLowerCase()}@student.hcmute.edu.vn` : '')
-          ).trim();
-          const phone = String(row['Số điện thoại'] || row['SĐT'] || row.phone || '').trim();
-          const dob = String(row['Ngày sinh'] || row.date_of_birth || '2004-01-01').trim();
-          const genderRaw = String(row['Giới tính'] || row.gender || 'Nam').trim();
+          const fullName = getCell(
+            row,
+            'Họ và tên',
+            'Họ tên',
+            'Ho va ten',
+            'Ho ten',
+            'full_name',
+            'HỌ VÀ TÊN',
+            'Tên cán bộ'
+          );
+          const normName = normalizeName(fullName);
+
+          const rawStudentId = getCell(
+            row,
+            'MSSV',
+            'Mã số SV/CB',
+            'Mã cán bộ',
+            'Mã CB',
+            'MSCB',
+            'Mã viên chức',
+            'Mã SV',
+            'MSSV/MSCB',
+            'student_id'
+          );
+          const rawEmail = getCell(row, 'Email', 'email', 'EMAIL', 'Thư điện tử');
+          const unitName = getCell(row, 'Đơn vị', 'Đơn vị trực thuộc', 'Chi đoàn/Đơn vị', 'unit_name') || 'Đoàn cơ sở';
+          const isCbvc =
+            unitName.toLowerCase().includes('cbvc') ||
+            unitName.toLowerCase().includes('cán bộ viên chức');
+
+          const sIdLower = rawStudentId.toLowerCase();
+          const isSharedOrEmptyCode =
+            isPlaceholderCode(rawStudentId) ||
+            (codeNamesMap.get(sIdLower)?.size || 0) > 1 ||
+            (rawStudentId === '22110101' && normName !== 'nguyễn văn minh');
+
+          const studentId = isSharedOrEmptyCode
+            ? `${isCbvc ? 'CBVC' : 'CB'}-${String(autoIdx++).padStart(3, '0')}`
+            : rawStudentId;
+
+          const emLower = rawEmail.toLowerCase();
+          const isSharedOrEmptyEmail =
+            isPlaceholderEmail(rawEmail) ||
+            (emailNamesMap.get(emLower)?.size || 0) > 1 ||
+            (emLower === '22110101@student.hcmute.edu.vn' && normName !== 'nguyễn văn minh');
+
+          const cleanCode = studentId.toLowerCase().replace(/[^a-z0-9]/g, '');
+          const email = isSharedOrEmptyEmail
+            ? `${cleanCode}@${isCbvc ? 'hcmute.edu.vn' : 'student.hcmute.edu.vn'}`
+            : rawEmail;
+
+          const phone = getCell(row, 'Số điện thoại', 'SĐT', 'Điện thoại', 'phone');
+          const dob = getCell(row, 'Ngày sinh', 'Năm sinh', 'date_of_birth') || '2004-01-01';
+          const genderRaw = getCell(row, 'Giới tính', 'gender') || 'Nam';
           const gender: 'Nam' | 'Nữ' =
             genderRaw.toLowerCase().includes('nữ') || genderRaw.toLowerCase() === 'nu' ? 'Nữ' : 'Nam';
-          const unitName = String(row['Đơn vị'] || row.unit_name || 'Đoàn cơ sở').trim();
-          const positionTitle = String(row['Chức vụ'] || row.position_title || 'Ủy viên BCH').trim();
-          const subsystemId = String(row['Phân hệ'] || row.subsystem_id || 'P03').trim();
-          const term = String(row['Nhiệm kỳ'] || row.term || '2025 - 2027').trim();
-          const major = String(row['Ngành học'] || row.major || '').trim();
-          const qualification = String(row['Trình độ chuyên môn'] || row.qualification || 'Sinh viên').trim();
-          const politicalTheory = String(row['Lý luận chính trị'] || row.political_theory || 'Sơ cấp').trim();
-          const isParty = String(row['Đảng viên'] || row.is_party_member || 'Không').trim();
-          const hometown = String(row['Quê quán'] || row.hometown || 'TP. Hồ Chí Minh').trim();
-          const currentResidence = String(row['Nơi ở hiện nay'] || row.current_residence || hometown).trim();
-          const ethnicity = String(row['Dân tộc'] || row.ethnicity || 'Kinh').trim();
-          const religion = String(row['Tôn giáo'] || row.religion || 'Không').trim();
-          const password = String(row['Mật khẩu'] || row.password || studentId || 'Hcmute@123').trim();
+          const positionTitle = getCell(row, 'Chức vụ', 'Chức danh', 'position_title') || 'Ủy viên BCH';
+          const subsystemId = getCell(row, 'Phân hệ', 'subsystem_id') || 'P03';
+          const term = getCell(row, 'Nhiệm kỳ', 'term') || '2025 - 2027';
+          const major = getCell(row, 'Ngành học', 'Khoa/Ngành', 'Khoa', 'major');
+          const qualification = getCell(row, 'Trình độ chuyên môn', 'Trình độ', 'qualification') || (isCbvc ? 'Cử nhân / Thạc sĩ' : 'Sinh viên');
+          const politicalTheory = getCell(row, 'Lý luận chính trị', 'political_theory') || 'Sơ cấp';
+          const isParty = getCell(row, 'Đảng viên', 'is_party_member') || 'Không';
+          const hometown = getCell(row, 'Quê quán', 'hometown') || 'TP. Hồ Chí Minh';
+          const currentResidence = getCell(row, 'Nơi ở hiện nay', 'Địa chỉ', 'current_residence') || hometown;
+          const ethnicity = getCell(row, 'Dân tộc', 'ethnicity') || 'Kinh';
+          const religion = getCell(row, 'Tôn giáo', 'religion') || 'Không';
+          const password = getCell(row, 'Mật khẩu', 'password') || studentId || 'Hcmute@123';
 
           let status: 'valid' | 'duplicate' | 'invalid' = 'valid';
-          let statusNote = 'Hợp lệ - Sẵn sàng thêm mới';
+          let statusNote = isSharedOrEmptyCode
+            ? `Hợp lệ - Cấp mã riêng (${studentId})`
+            : 'Hợp lệ - Sẵn sàng thêm mới';
 
-          if (!fullName || (!studentId && !email)) {
+          if (!fullName) {
             status = 'invalid';
-            statusNote = 'Thiếu Họ tên hoặc MSSV/Email';
+            statusNote = 'Thiếu Họ và tên cán bộ';
           } else {
+            // Chỉ báo trùng khi trùng đúng HỌ VÀ TÊN với hồ sơ đã có (trừ hồ sơ Nguyễn Văn Minh mẫu bị lỗi gộp trước đó)
             const isDup = profiles.some(
               (p) =>
-                (studentId && p.student_id?.toLowerCase() === studentId.toLowerCase()) ||
-                (email && p.email?.toLowerCase() === email.toLowerCase())
+                normalizeName(p.full_name) === normName &&
+                !(normalizeName(p.full_name) === 'nguyễn văn minh' && p.roles.length > 2)
             );
             if (isDup) {
               status = 'duplicate';
-              statusNote = 'Trùng MSSV/Email trên hệ thống';
+              statusNote = 'Đã có tên trên hệ thống (Sẽ cập nhật)';
             }
           }
 
@@ -1582,33 +1705,40 @@ export default function AdminProfilesView() {
               </button>
             </div>
 
-            {dupCount > 0 && (
-              <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
-                <span className="font-semibold text-amber-900">
-                  Phát hiện {dupCount} cán bộ trùng MSSV hoặc Email đã có trong hệ thống. Chọn cách xử lý:
-                </span>
-                <div className="flex items-center gap-3">
-                  <label className="flex items-center gap-1.5 font-bold text-amber-900 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="dupMode"
-                      checked={duplicateMode === 'update'}
-                      onChange={() => setDuplicateMode('update')}
-                    />
-                    <span>Cập nhật thông tin & thêm kiêm nhiệm</span>
-                  </label>
-                  <label className="flex items-center gap-1.5 font-bold text-amber-900 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="dupMode"
-                      checked={duplicateMode === 'skip'}
-                      onChange={() => setDuplicateMode('skip')}
-                    />
-                    <span>Bỏ qua dòng trùng</span>
-                  </label>
-                </div>
+            <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 flex flex-col gap-2 text-xs">
+              <span className="font-bold text-amber-900">
+                Chế độ nhập dữ liệu (Tự động tách riêng từng cán bộ theo Họ và tên, không gộp nhầm Đoàn CBVC):
+              </span>
+              <div className="flex flex-wrap items-center gap-4">
+                <label className="flex items-center gap-1.5 font-bold text-amber-900 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="dupMode"
+                    checked={duplicateMode === 'update'}
+                    onChange={() => setDuplicateMode('update')}
+                  />
+                  <span>Cập nhật & làm sạch chức vụ bị gộp nhầm ({validCount + dupCount} cán bộ)</span>
+                </label>
+                <label className="flex items-center gap-1.5 font-bold text-emerald-800 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="dupMode"
+                    checked={duplicateMode === 'replace'}
+                    onChange={() => setDuplicateMode('replace')}
+                  />
+                  <span>Làm sạch danh sách cũ & thay thế hoàn toàn bằng file này ({validCount + dupCount} cán bộ)</span>
+                </label>
+                <label className="flex items-center gap-1.5 font-bold text-amber-900 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="dupMode"
+                    checked={duplicateMode === 'skip'}
+                    onChange={() => setDuplicateMode('skip')}
+                  />
+                  <span>Chỉ thêm mới, bỏ qua người đã có ({validCount} cán bộ)</span>
+                </label>
               </div>
-            )}
+            </div>
 
             <div className="flex-1 overflow-auto border border-border rounded-xl">
               <table className="w-full text-left text-xs">
@@ -1616,7 +1746,7 @@ export default function AdminProfilesView() {
                   <tr>
                     <th className="p-2.5">#</th>
                     <th className="p-2.5">Họ và tên</th>
-                    <th className="p-2.5">MSSV</th>
+                    <th className="p-2.5">MSSV / Mã CB</th>
                     <th className="p-2.5">Email</th>
                     <th className="p-2.5">Đơn vị</th>
                     <th className="p-2.5">Chức vụ</th>
@@ -1673,7 +1803,9 @@ export default function AdminProfilesView() {
                   className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm cursor-pointer flex items-center gap-1.5"
                 >
                   <CheckCircle2 className="w-4 h-4" />
-                  <span>Xác nhận nhập vào hệ thống ({validCount + (duplicateMode === 'update' ? dupCount : 0)} cán bộ)</span>
+                  <span>
+                    Xác nhận nhập vào hệ thống ({validCount + (duplicateMode !== 'skip' ? dupCount : 0)} cán bộ)
+                  </span>
                 </button>
               </div>
             </div>

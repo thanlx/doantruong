@@ -296,7 +296,7 @@ interface AppContextType {
   };
   importProfilesFromExcel: (
     rows: any[],
-    duplicateMode: 'update' | 'skip'
+    duplicateMode: 'update' | 'skip' | 'replace'
   ) => {
     success: boolean;
     message: string;
@@ -2553,61 +2553,190 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   );
 
   const importProfilesFromExcel = useCallback(
-    (rows: any[], duplicateMode: 'update' | 'skip') => {
+    (rows: any[], duplicateMode: 'update' | 'skip' | 'replace') => {
       let addedCount = 0;
       let updatedCount = 0;
       let skippedCount = 0;
 
-      const nextProfiles = [...profiles];
-      const nextUsers = [...users];
+      const normalizeName = (s: string) =>
+        String(s || '')
+          .trim()
+          .toLowerCase()
+          .replace(/\s+/g, ' ');
+
+      const isPlaceholderCode = (val: string) => {
+        const v = String(val || '').trim().toLowerCase();
+        return (
+          !v ||
+          v === '-' ||
+          v === '--' ||
+          v === '—' ||
+          v === 'không' ||
+          v === 'khong' ||
+          v === 'n/a' ||
+          v === 'na' ||
+          v === 'none' ||
+          v === 'null' ||
+          v === 'undefined' ||
+          v === 'cbvc' ||
+          v === 'cb' ||
+          v === 'gv' ||
+          v === 'chưa có' ||
+          v === 'chua co' ||
+          v === '0'
+        );
+      };
+
+      const isPlaceholderEmail = (val: string) => {
+        const v = String(val || '').trim().toLowerCase();
+        if (!v || !v.includes('@')) return true;
+        const prefix = v.split('@')[0];
+        return isPlaceholderCode(prefix);
+      };
+
+      // Nếu chọn chế độ 'replace' (Làm sạch & thay thế bằng danh sách Excel mới), chỉ giữ lại hồ sơ Super Admin tối cao
+      // Nếu chọn chế độ 'update', tự động làm sạch các chức vụ bị gộp nhầm trước đó (VD: Nguyễn Văn Minh có > 2 chức vụ của Đoàn CBVC)
+      const baseProfiles =
+        duplicateMode === 'replace'
+          ? profiles.filter(
+              (p) =>
+                p.id === 'prof_thanlx' ||
+                p.email?.toLowerCase() === 'thanlx@hcmute.edu.vn'
+            )
+          : profiles
+              .filter((p) => {
+                // Nếu là hồ sơ mẫu Nguyễn Văn Minh (22110101) bị gộp nhầm hàng loạt chức vụ Đoàn CBVC từ lần nhập trước thì loại bỏ để nhập lại chuẩn xác từ file
+                const isCorruptedMinh =
+                  (normalizeName(p.full_name) === 'nguyễn văn minh' || p.student_id === '22110101') &&
+                  p.roles.length > 2;
+                return !isCorruptedMinh;
+              })
+              .map((p) => {
+                if (p.roles.length > 3) {
+                  // Giữ lại chức vụ đầu tiên nếu hồ sơ từng bị cộng dồn nhầm
+                  return { ...p, roles: [p.roles[0]] };
+                }
+                return p;
+              });
+
+      const nextProfiles = [...baseProfiles];
+      const nextUsers =
+        duplicateMode === 'replace'
+          ? users.filter(
+              (u) =>
+                u.id === 'user_thanlx' ||
+                u.email?.toLowerCase() === 'thanlx@hcmute.edu.vn' ||
+                (u.roles || []).includes('admin') ||
+                (u.roles || []).includes('admin_don_vi')
+            )
+          : [...users];
+
       const todayStr = new Date().toISOString().split('T')[0];
+      const touchedProfileIdsInBatch = new Set<string>();
+
+      // Đếm số người khác nhau dùng chung cùng 1 MSSV hoặc Email trong file Excel để phát hiện lỗi copy-paste mã
+      const codeNamesMap = new Map<string, Set<string>>();
+      const emailNamesMap = new Map<string, Set<string>>();
+
+      rows.forEach((r) => {
+        const fName = normalizeName(r.full_name || r['Họ và tên'] || r['Ho va ten'] || '');
+        if (!fName) return;
+        const sId = String(r.student_id || r['MSSV'] || r['Mã số SV/CB'] || '').trim().toLowerCase();
+        const em = String(r.email || r['Email'] || '').trim().toLowerCase();
+        if (sId && !isPlaceholderCode(sId)) {
+          if (!codeNamesMap.has(sId)) codeNamesMap.set(sId, new Set());
+          codeNamesMap.get(sId)!.add(fName);
+        }
+        if (em && !isPlaceholderEmail(em)) {
+          if (!emailNamesMap.has(em)) emailNamesMap.set(em, new Set());
+          emailNamesMap.get(em)!.add(fName);
+        }
+      });
+
+      let autoCodeCounter = 1;
+      const generateUniqueCode = (prefix: string) => {
+        while (true) {
+          const candidate = `${prefix}-${String(autoCodeCounter).padStart(3, '0')}`;
+          autoCodeCounter++;
+          const exists = nextProfiles.some(
+            (p) => p.student_id?.toLowerCase() === candidate.toLowerCase()
+          );
+          if (!exists) return candidate;
+        }
+      };
 
       rows.forEach((row, idx) => {
-        const fullName = String(row.full_name || row['Họ và tên'] || row['Ho va ten'] || '').trim();
-        const studentId = String(row.student_id || row['MSSV'] || row['Mã số SV/CB'] || '').trim();
-        const email = String(
-          row.email || row['Email'] || (studentId ? `${studentId.toLowerCase()}@student.hcmute.edu.vn` : '')
-        ).trim();
+        const rawObj = row.raw || row;
+        const getField = (...keys: string[]) => {
+          for (const k of keys) {
+            if (row[k] !== undefined && String(row[k]).trim() !== '') return String(row[k]).trim();
+            if (rawObj[k] !== undefined && String(rawObj[k]).trim() !== '') return String(rawObj[k]).trim();
+          }
+          // Case-insensitive / trimmed key fallback on rawObj
+          const rawKeys = Object.keys(rawObj);
+          for (const k of keys) {
+            const foundKey = rawKeys.find((rk) => rk.trim().toLowerCase() === k.trim().toLowerCase());
+            if (foundKey && String(rawObj[foundKey]).trim() !== '') {
+              return String(rawObj[foundKey]).trim();
+            }
+          }
+          return '';
+        };
 
-        if (!fullName || (!studentId && !email)) {
+        const fullName = getField('full_name', 'Họ và tên', 'Họ tên', 'Ho va ten', 'Ho ten', 'HỌ VÀ TÊN', 'Tên cán bộ');
+        if (!fullName) {
           skippedCount++;
           return;
         }
 
-        const genderRaw = String(row.gender || row['Giới tính'] || 'Nam').trim();
-        const gender: 'Nam' | 'Nữ' = genderRaw.toLowerCase().includes('nữ') || genderRaw.toLowerCase() === 'nu' ? 'Nữ' : 'Nam';
-        const dob = String(row.date_of_birth || row['Ngày sinh'] || '2005-01-01').trim();
-        const phone = String(row.phone || row['Số điện thoại'] || row['SĐT'] || '').trim();
-        const hometown = String(row.hometown || row['Quê quán'] || 'TP. Hồ Chí Minh').trim();
-        const currentResidence = String(row.current_residence || row['Nơi ở hiện nay'] || hometown).trim();
-        const ethnicity = String(row.ethnicity || row['Dân tộc'] || 'Kinh').trim();
-        const religion = String(row.religion || row['Tôn giáo'] || 'Không').trim();
-        const major = String(row.major || row['Ngành học'] || row['Khoa/Ngành'] || '').trim();
-        const qualification = String(row.qualification || row['Trình độ chuyên môn'] || 'Sinh viên').trim();
-        const politicalTheory = String(row.political_theory || row['Lý luận chính trị'] || 'Sơ cấp').trim();
-        const unitName = String(row.unit_name || row['Đơn vị'] || 'Đoàn trường').trim();
-        const positionTitle = String(row.position_title || row['Chức vụ'] || 'Ủy viên BCH').trim();
-        const subsystemRaw = String(row.subsystem_id || row['Phân hệ'] || 'P03').trim().toUpperCase();
-        const subsystemId: SubsystemId = (['P01', 'P02', 'P03', 'P04', 'P05', 'P06', 'P07'].includes(subsystemRaw)
-          ? subsystemRaw
-          : 'P03') as SubsystemId;
-        const term = String(row.term || row['Nhiệm kỳ'] || '2025 - 2027').trim();
-        const isParty =
-          String(row.is_party_member || row['Đảng viên'] || '')
-            .trim()
-            .toLowerCase() === 'có' ||
-          String(row.is_party_member || row['Đảng viên'] || '')
-            .trim()
-            .toLowerCase() === 'true' ||
-          String(row.is_party_member || row['Đảng viên'] || '')
-            .trim() === '1';
+        const normFullName = normalizeName(fullName);
+        let rawStudentId = getField(
+          'student_id',
+          'MSSV',
+          'Mã số SV/CB',
+          'Mã cán bộ',
+          'Mã CB',
+          'MSCB',
+          'Mã viên chức',
+          'Mã SV',
+          'MSSV/MSCB'
+        );
+        let rawEmail = getField('email', 'Email', 'EMAIL', 'Thư điện tử');
 
-        // Match unit in units (hỗ trợ khớp cả tên đầy đủ, mã đơn vị, lẫn tên Khoa/Viện rút gọn)
-        const cleanUnitNameLower = unitName.toLowerCase();
-        const explicitSubsystemRaw = String(row.subsystem_id || row['Phân hệ'] || '').trim().toUpperCase();
+        const genderRaw = getField('gender', 'Giới tính') || 'Nam';
+        const gender: 'Nam' | 'Nữ' =
+          genderRaw.toLowerCase().includes('nữ') || genderRaw.toLowerCase() === 'nu' ? 'Nữ' : 'Nam';
+        const dob = getField('date_of_birth', 'Ngày sinh', 'Năm sinh') || '2004-01-01';
+        const phone = getField('phone', 'Số điện thoại', 'SĐT', 'Điện thoại');
+        const hometown = getField('hometown', 'Quê quán') || 'TP. Hồ Chí Minh';
+        const currentResidence = getField('current_residence', 'Nơi ở hiện nay', 'Địa chỉ') || hometown;
+        const ethnicity = getField('ethnicity', 'Dân tộc') || 'Kinh';
+        const religion = getField('religion', 'Tôn giáo') || 'Không';
+        const major = getField('major', 'Ngành học', 'Khoa/Ngành', 'Khoa', 'Đơn vị công tác');
+        const qualification = getField('qualification', 'Trình độ chuyên môn', 'Trình độ') || 'Sinh viên';
+        const politicalTheory = getField('political_theory', 'Lý luận chính trị') || 'Sơ cấp';
+        const unitName = getField('unit_name', 'Đơn vị', 'Đơn vị trực thuộc', 'Chi đoàn/Đơn vị') || 'Đoàn trường';
+        const positionTitle = getField('position_title', 'Chức vụ', 'Chức danh') || 'Ủy viên BCH';
+        const explicitSubsystemRaw = getField('subsystem_id', 'Phân hệ').toUpperCase();
         const hasExplicitSubsystem = ['P01', 'P02', 'P03', 'P04', 'P05', 'P06', 'P07'].includes(explicitSubsystemRaw);
+        const subsystemId: SubsystemId = (hasExplicitSubsystem ? explicitSubsystemRaw : 'P03') as SubsystemId;
+        const term = getField('term', 'Nhiệm kỳ') || '2025 - 2027';
+        const isPartyRaw = getField('is_party_member', 'Đảng viên').toLowerCase();
+        const isParty = isPartyRaw === 'có' || isPartyRaw === 'co' || isPartyRaw === 'true' || isPartyRaw === '1' || isPartyRaw === 'x';
+
+        // Match unit in units (hỗ trợ chuẩn xác Đoàn CBVC, 14 Khoa/Viện của Đoàn cơ sở & Liên chi hội, CLB...)
+        const cleanUnitNameLower = unitName
+          .toLowerCase()
+          .replace(/\s+/g, ' ')
+          .trim();
+
+        const isCbvcUnit =
+          cleanUnitNameLower.includes('cbvc') ||
+          cleanUnitNameLower.includes('cán bộ viên chức') ||
+          cleanUnitNameLower.includes('can bo vien chuc');
 
         const matchedUnit =
+          (isCbvcUnit ? units.find((u) => u.id === 'unit_dcs_cbvc') : undefined) ||
           units.find(
             (u) =>
               u.name.toLowerCase() === cleanUnitNameLower ||
@@ -2615,11 +2744,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           ) ||
           units.find((u) => {
             const uLower = u.name.toLowerCase();
-            if (subsystemId === 'P04' && u.parent_id === 'unit_lien_chi_hoi') {
-              return uLower.endsWith(cleanUnitNameLower) || uLower.includes(cleanUnitNameLower);
+            if (
+              (subsystemId === 'P04' || cleanUnitNameLower.includes('liên chi hội') || cleanUnitNameLower.startsWith('lch')) &&
+              u.parent_id === 'unit_lien_chi_hoi'
+            ) {
+              const stripped = cleanUnitNameLower
+                .replace(/^liên chi hội\s*(sinh viên)?\s*(khoa|viện)?\s*/i, '')
+                .replace(/^lch\s*(khoa|viện)?\s*/i, '')
+                .trim();
+              return stripped.length > 1 && (uLower.endsWith(stripped) || uLower.includes(stripped));
             }
-            if (subsystemId === 'P03' && u.parent_id === 'unit_doan_co_so') {
-              return uLower.endsWith(cleanUnitNameLower) || uLower.includes(cleanUnitNameLower);
+            if (u.parent_id === 'unit_doan_co_so') {
+              const stripped = cleanUnitNameLower
+                .replace(/^đoàn\s*(cơ sở)?\s*(khoa|viện)?\s*/i, '')
+                .replace(/^đcs\s*(khoa|viện)?\s*/i, '')
+                .trim();
+              return stripped.length > 1 && (uLower.endsWith(stripped) || uLower.includes(stripped));
             }
             return false;
           }) ||
@@ -2632,47 +2772,100 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         ) as SubsystemId;
         const resolvedUnitName = matchedUnit?.name || unitName || 'Đoàn trường';
 
-        // Check if profile already exists
-        const existingIdx = nextProfiles.findIndex(
-          (p) =>
-            (studentId && p.student_id?.toLowerCase() === studentId.toLowerCase()) ||
-            (email && p.email?.toLowerCase() === email.toLowerCase())
-        );
+        // Kiểm tra xem MSSV / Email của dòng này có bị trùng với người KHÁC TÊN (do copy-paste từ file mẫu hoặc để trống/CBVC) hay không
+        const sIdLower = rawStudentId.toLowerCase();
+        const isSharedCodeAcrossDifferentNames =
+          isPlaceholderCode(rawStudentId) ||
+          (codeNamesMap.get(sIdLower)?.size || 0) > 1 ||
+          (rawStudentId === '22110101' && normFullName !== 'nguyễn văn minh') ||
+          nextProfiles.some(
+            (p) =>
+              p.student_id?.toLowerCase() === sIdLower &&
+              normalizeName(p.full_name) !== normFullName
+          );
+
+        const codePrefix =
+          isCbvcUnit || matchedUnit?.id === 'unit_dcs_cbvc' ? 'CBVC' : 'CB';
+        const studentId = isSharedCodeAcrossDifferentNames
+          ? generateUniqueCode(codePrefix)
+          : rawStudentId;
+
+        const emLower = rawEmail.toLowerCase();
+        const isSharedEmailAcrossDifferentNames =
+          isPlaceholderEmail(rawEmail) ||
+          (emailNamesMap.get(emLower)?.size || 0) > 1 ||
+          (emLower === '22110101@student.hcmute.edu.vn' && normFullName !== 'nguyễn văn minh') ||
+          nextProfiles.some(
+            (p) =>
+              p.email?.toLowerCase() === emLower &&
+              normalizeName(p.full_name) !== normFullName
+          );
+
+        const cleanCodeForEmail = studentId.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const email = isSharedEmailAcrossDifferentNames
+          ? `${cleanCodeForEmail}@${isCbvcUnit ? 'hcmute.edu.vn' : 'student.hcmute.edu.vn'}`
+          : rawEmail;
+
+        // QUY TẮC QUAN TRỌNG: Chỉ coi là cùng 1 cán bộ (để cập nhật / thêm kiêm nhiệm) khi TRÙNG HỌ VÀ TÊN
+        // và (trùng MSSV/Email hoặc cùng đơn vị). Tuyệt đối KHÔNG gộp 2 người khác Họ tên vào nhau!
+        const existingIdx = nextProfiles.findIndex((p) => {
+          if (normalizeName(p.full_name) !== normFullName) return false;
+          if (!isSharedCodeAcrossDifferentNames && p.student_id?.toLowerCase() === studentId.toLowerCase()) {
+            return true;
+          }
+          if (!isSharedEmailAcrossDifferentNames && p.email?.toLowerCase() === email.toLowerCase()) {
+            return true;
+          }
+          // Cùng họ tên hoàn toàn trong cùng file/hệ thống khi không có MSSV riêng
+          return true;
+        });
+
+        const newRoleItem = {
+          id: `role_imp_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 6)}`,
+          profile_id: existingIdx !== -1 ? nextProfiles[existingIdx].id : '',
+          unit_id: matchedUnit?.id || 'unit_doan_truong',
+          unit_name: resolvedUnitName,
+          subsystem_id: resolvedSubsystemId,
+          position_title: positionTitle,
+          term,
+          start_date: todayStr,
+          end_date: null,
+          decision_number: getField('decision_number', 'Số quyết định') || 'QĐ-IMP',
+          status: 'active' as const,
+        };
 
         if (existingIdx !== -1) {
           if (duplicateMode === 'skip') {
             skippedCount++;
             return;
           }
-          // Update existing profile
           const existing = nextProfiles[existingIdx];
-          const hasRole = existing.roles.some(
-            (r) =>
-              (r.unit_id === matchedUnit?.id || r.unit_name.toLowerCase() === resolvedUnitName.toLowerCase()) &&
-              r.position_title.toLowerCase() === positionTitle.toLowerCase()
-          );
-          const updatedRoles = hasRole
-            ? existing.roles
-            : [
-                ...existing.roles,
-                {
-                  id: `role_imp_${Date.now()}_${idx}`,
-                  profile_id: existing.id,
-                  unit_id: matchedUnit?.id || 'unit_doan_truong',
-                  unit_name: resolvedUnitName,
-                  subsystem_id: resolvedSubsystemId,
-                  position_title: positionTitle,
-                  term,
-                  start_date: todayStr,
-                  end_date: null,
-                  decision_number: String(row.decision_number || row['Số quyết định'] || 'QĐ-IMP'),
-                  status: 'active' as const,
-                },
-              ];
+          const isFirstTouchInThisBatch = !touchedProfileIdsInBatch.has(existing.id);
+          touchedProfileIdsInBatch.add(existing.id);
+
+          newRoleItem.profile_id = existing.id;
+
+          let updatedRoles = existing.roles;
+          if (isFirstTouchInThisBatch) {
+            // Lần đầu tiên gặp cán bộ này trong lần nhập file Excel hiện tại:
+            // Đặt lại chức vụ theo đúng dòng trong file Excel để xóa sạch mọi chức vụ bị gộp nhầm trước đó
+            updatedRoles = [newRoleItem];
+          } else {
+            // Nếu cùng 1 cán bộ xuất hiện ở nhiều dòng trong CÙNG file Excel (kiêm nhiệm thực sự): thêm chức vụ kiêm nhiệm
+            const hasRole = existing.roles.some(
+              (r) =>
+                r.unit_id === newRoleItem.unit_id &&
+                r.position_title.toLowerCase() === newRoleItem.position_title.toLowerCase()
+            );
+            if (!hasRole) {
+              updatedRoles = [...existing.roles, newRoleItem];
+            }
+          }
 
           nextProfiles[existingIdx] = {
             ...existing,
-            full_name: fullName || existing.full_name,
+            full_name: fullName,
+            student_id: studentId || existing.student_id,
             date_of_birth: dob || existing.date_of_birth,
             gender,
             phone: phone || existing.phone,
@@ -2691,19 +2884,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             version: (existing.version || 1) + 1,
             updated_at: todayStr,
           };
-          updatedCount++;
+          if (isFirstTouchInThisBatch) {
+            updatedCount++;
+          }
         } else {
-          // Create new profile
-          const newProfId = `prof_imp_${Date.now()}_${idx}`;
+          // Tạo hồ sơ cán bộ mới hoàn toàn (đảm bảo đủ 100% số người trong danh sách Excel)
+          const newProfId = `prof_imp_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 6)}`;
+          newRoleItem.profile_id = newProfId;
+          touchedProfileIdsInBatch.add(newProfId);
+
           const codeNum = nextProfiles.length + 1;
+          const isStaffOfficer =
+            isCbvcUnit ||
+            studentId.toUpperCase().startsWith('CB') ||
+            qualification.toLowerCase().includes('thạc sĩ') ||
+            qualification.toLowerCase().includes('tiến sĩ') ||
+            qualification.toLowerCase().includes('cử nhân') ||
+            qualification.toLowerCase().includes('kỹ sư') ||
+            qualification.toLowerCase().includes('giảng viên') ||
+            qualification.toLowerCase().includes('chuyên viên');
+
           const newProfile: OfficerProfile = {
             id: newProfId,
             profile_code: `CB-${String(codeNum).padStart(4, '0')}`,
             full_name: fullName,
-            officer_type:
-              studentId.toUpperCase().startsWith('CB') || qualification.toLowerCase().includes('thạc sĩ')
-                ? 'can_bo_giang_vien'
-                : 'sinh_vien',
+            officer_type: isStaffOfficer ? 'can_bo_giang_vien' : 'sinh_vien',
             student_id: studentId,
             date_of_birth: dob,
             gender,
@@ -2725,39 +2930,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             version: 1,
             created_at: todayStr,
             updated_at: todayStr,
-            roles: [
-              {
-                id: `role_imp_${Date.now()}_${idx}`,
-                profile_id: newProfId,
-                unit_id: matchedUnit?.id || 'unit_doan_truong',
-                unit_name: resolvedUnitName,
-                subsystem_id: resolvedSubsystemId,
-                position_title: positionTitle,
-                term,
-                start_date: todayStr,
-                end_date: null,
-                decision_number: String(row.decision_number || row['Số quyết định'] || 'QĐ-IMP'),
-                status: 'active',
-              },
-            ],
+            roles: [newRoleItem],
           };
           nextProfiles.push(newProfile);
           addedCount++;
 
-          // Also create user account if email doesn't exist
+          // Tạo tài khoản đăng nhập cho cán bộ mới
           if (email && !nextUsers.some((u) => u.email.toLowerCase() === email.toLowerCase())) {
             nextUsers.push({
-              id: `user_imp_${Date.now()}_${idx}`,
+              id: `user_imp_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 6)}`,
               profile_id: newProfId,
               full_name: fullName,
               student_id: studentId,
               username: email.split('@')[0] || studentId,
-              password: String(row.password || row['Mật khẩu'] || studentId || 'Hcmute@123').trim(),
+              password: getField('password', 'Mật khẩu') || studentId || 'Hcmute@123',
               email,
               avatar_code: fullName
                 .split(' ')
                 .slice(-2)
-                .map((w) => w[0])
+                .map((w) => w[0] || '')
                 .join('')
                 .toUpperCase()
                 .slice(0, 2),
@@ -2781,12 +2972,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         'excel_batch',
         `Batch (${rows.length} dòng)`,
         'Hồ sơ cán bộ',
-        `Nhập dữ liệu Excel hoàn tất: Thêm mới ${addedCount} cán bộ, cập nhật ${updatedCount} cán bộ, bỏ qua ${skippedCount} dòng.`
+        `Nhập dữ liệu Excel hoàn tất: Thêm mới ${addedCount} cán bộ, cập nhật ${updatedCount} cán bộ, bỏ qua ${skippedCount} dòng. Tổng số cán bộ hiện có: ${nextProfiles.length}.`
       );
 
       return {
         success: true,
-        message: `Nhập Excel hoàn tất: Thêm mới ${addedCount} hồ sơ, cập nhật ${updatedCount} hồ sơ, bỏ qua ${skippedCount} dòng.`,
+        message: `Nhập Excel hoàn tất: Thêm mới ${addedCount} hồ sơ, cập nhật ${updatedCount} hồ sơ (Tổng danh sách: ${nextProfiles.length} cán bộ).`,
         addedCount,
         updatedCount,
         skippedCount,
