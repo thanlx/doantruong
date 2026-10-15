@@ -103,6 +103,8 @@ export default function AdminProfilesView() {
   // Edit Profile Modal
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editForm, setEditForm] = useState<Partial<OfficerProfile>>({});
+  const [editPrimaryUnitId, setEditPrimaryUnitId] = useState<string>('unit_doan_truong');
+  const [editPrimaryPosition, setEditPrimaryPosition] = useState<string>('Ủy viên BCH');
 
   // Add Concurrent Role (Kiêm nhiệm) Modal
   const [isAddRoleOpen, setIsAddRoleOpen] = useState(false);
@@ -122,7 +124,7 @@ export default function AdminProfilesView() {
     setTimeout(() => setNotice(null), 5000);
   };
 
-  // Filter profiles
+  // Filter profiles (bao gồm các phân hệ con khi chọn đơn vị cha)
   const filteredProfiles = profiles.filter((p) => {
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
@@ -132,9 +134,29 @@ export default function AdminProfilesView() {
       const matchCode = p.profile_code?.toLowerCase().includes(q);
       if (!matchName && !matchMssv && !matchEmail && !matchCode) return false;
     }
-    if (subsystemFilter !== 'all' && p.primary_subsystem_id !== subsystemFilter) return false;
-    if (unitFilter !== 'all' && p.primary_unit_id !== unitFilter && !p.roles.some((r) => r.unit_id === unitFilter))
+    if (
+      subsystemFilter !== 'all' &&
+      p.primary_subsystem_id !== subsystemFilter &&
+      !p.roles.some((r) => r.subsystem_id === subsystemFilter)
+    ) {
       return false;
+    }
+    if (unitFilter !== 'all') {
+      const validIds = new Set<string>([unitFilter]);
+      let added = true;
+      while (added) {
+        added = false;
+        units.forEach((u) => {
+          if (u.parent_id && validIds.has(u.parent_id) && !validIds.has(u.id)) {
+            validIds.add(u.id);
+            added = true;
+          }
+        });
+      }
+      if (!validIds.has(p.primary_unit_id) && !p.roles.some((r) => validIds.has(r.unit_id))) {
+        return false;
+      }
+    }
     if (statusFilter !== 'all') {
       if (statusFilter === 'verified' && p.verification_status !== 'verified') return false;
       if (statusFilter === 'pending' && p.verification_status !== 'pending_update') return false;
@@ -403,13 +425,54 @@ export default function AdminProfilesView() {
   // Open Edit Profile Modal
   const handleOpenEditModal = (prof: OfficerProfile) => {
     setEditForm({ ...prof });
+    setEditPrimaryUnitId(prof.primary_unit_id || prof.roles?.[0]?.unit_id || 'unit_doan_truong');
+    setEditPrimaryPosition(prof.roles?.[0]?.position_title || 'Ủy viên BCH');
     setIsEditModalOpen(true);
   };
 
   const handleSaveEditProfile = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedProfile) return;
-    const res = updateProfile(selectedProfile.id, editForm);
+
+    const targetUnitObj = units.find((u) => u.id === editPrimaryUnitId) || units[0];
+    const resolvedSubsystem: SubsystemId =
+      targetUnitObj?.subsystem_id || editForm.primary_subsystem_id || selectedProfile.primary_subsystem_id || 'P03';
+
+    const existingRoles = [...(selectedProfile.roles || [])];
+    const updatedRoles =
+      existingRoles.length > 0
+        ? existingRoles.map((r, idx) =>
+            idx === 0
+              ? {
+                  ...r,
+                  unit_id: editPrimaryUnitId,
+                  unit_name: targetUnitObj?.name || r.unit_name,
+                  subsystem_id: resolvedSubsystem,
+                  position_title: editPrimaryPosition.trim() || r.position_title,
+                }
+              : r
+          )
+        : [
+            {
+              id: `role_${Date.now()}`,
+              profile_id: selectedProfile.id,
+              unit_id: editPrimaryUnitId,
+              unit_name: targetUnitObj?.name || 'Đoàn trường',
+              subsystem_id: resolvedSubsystem,
+              position_title: editPrimaryPosition.trim() || 'Ủy viên BCH',
+              term: '2025 - 2027',
+              start_date: new Date().toISOString().split('T')[0],
+              end_date: null,
+              status: 'active' as const,
+            },
+          ];
+
+    const res = updateProfile(selectedProfile.id, {
+      ...editForm,
+      primary_unit_id: editPrimaryUnitId,
+      primary_subsystem_id: resolvedSubsystem,
+      roles: updatedRoles,
+    });
     if (res.success) {
       setIsEditModalOpen(false);
       showNotice(res.message);
@@ -1285,6 +1348,32 @@ export default function AdminProfilesView() {
                     <option value="Nam">Nam</option>
                     <option value="Nữ">Nữ</option>
                   </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="font-bold text-foreground">Đơn vị quản lý chính</label>
+                  <select
+                    value={editPrimaryUnitId}
+                    onChange={(e) => setEditPrimaryUnitId(e.target.value)}
+                    className="mt-1 w-full rounded-xl border border-border bg-background p-2.5"
+                  >
+                    {units.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="font-bold text-foreground">Chức danh đảm nhiệm chính</label>
+                  <input
+                    type="text"
+                    value={editPrimaryPosition}
+                    onChange={(e) => setEditPrimaryPosition(e.target.value)}
+                    className="mt-1 w-full rounded-xl border border-border bg-background p-2.5"
+                  />
                 </div>
               </div>
 

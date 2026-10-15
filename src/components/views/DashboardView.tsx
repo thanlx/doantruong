@@ -32,8 +32,14 @@ export default function DashboardView() {
     setSelectedRequestId,
   } = useApp();
 
-  // Find user's profile
-  const profile = profiles.find((p) => p.id === currentUser.profile_id) || profiles[0];
+  // Find user's profile (khớp theo id, email hoặc MSSV)
+  const profile =
+    profiles.find((p) => p.id === currentUser.profile_id) ||
+    profiles.find((p) => p.email?.toLowerCase() === currentUser.email?.toLowerCase()) ||
+    profiles.find(
+      (p) => currentUser.student_id && p.student_id?.toLowerCase() === currentUser.student_id?.toLowerCase()
+    ) ||
+    profiles[0];
 
   // Stats
   const pendingRequests = updateRequests.filter(

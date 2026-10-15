@@ -22,25 +22,47 @@ export default function DecisionsAndHistoryView() {
   const {
     currentUser,
     profiles,
+    allProfiles,
     decisions,
     units,
+    allUnits,
     selectedDecisionId,
     setSelectedDecisionId,
   } = useApp();
 
-  const profile = profiles.find((p) => p.id === currentUser.profile_id) || profiles[0];
+  const directoryProfiles = allProfiles && allProfiles.length > 0 ? allProfiles : profiles;
+  const directoryDecisions = decisions;
+  const directoryUnits = allUnits && allUnits.length > 0 ? allUnits : units;
+
+  const profile =
+    directoryProfiles.find((p) => p.id === currentUser.profile_id) ||
+    directoryProfiles.find((p) => p.email?.toLowerCase() === currentUser.email?.toLowerCase()) ||
+    directoryProfiles.find(
+      (p) => currentUser.student_id && p.student_id?.toLowerCase() === currentUser.student_id?.toLowerCase()
+    ) ||
+    directoryProfiles[0];
 
   const [activeTab, setActiveTab] = useState<'chuc_vu' | 'qua_trinh' | 'quyet_dinh'>('qua_trinh');
   const [unitFilter, setUnitFilter] = useState('all');
   const [termFilter, setTermFilter] = useState('all');
-  const [fromDate, setFromDate] = useState('2026-01-01');
-  const [toDate, setToDate] = useState('2026-12-31');
+  const [fromDate, setFromDate] = useState('2025-01-01');
+  const [toDate, setToDate] = useState('2027-12-31');
+
+  const filteredDecisions = directoryDecisions.filter((d) => {
+    if (unitFilter !== 'all' && d.unit_id !== unitFilter && !d.changes?.some((c) => c.unit_id === unitFilter)) {
+      return false;
+    }
+    if (termFilter !== 'all' && d.term && d.term !== termFilter) {
+      return false;
+    }
+    return true;
+  });
 
   // Find active decision for detail view
   const activeDecision =
-    decisions.find((d) => d.id === selectedDecisionId) ||
-    decisions.find((d) => d.decision_number === '145-QĐ/HSV') ||
-    decisions[0];
+    filteredDecisions.find((d) => d.id === selectedDecisionId) ||
+    filteredDecisions[0] ||
+    directoryDecisions[0];
 
   const handleDownload = (fileName?: string) => {
     alert(`Đang tải tệp quyết định đính kèm: ${fileName || 'Quyet_dinh.pdf'}`);
@@ -96,7 +118,7 @@ export default function DecisionsAndHistoryView() {
               className="mt-1 w-full rounded-xl border border-border bg-background px-3 py-2 text-xs font-semibold text-foreground focus:border-primary focus:outline-hidden"
             >
               <option value="all">Tất cả đơn vị</option>
-              {units.map((u) => (
+              {directoryUnits.map((u) => (
                 <option key={u.id} value={u.id}>
                   {u.name}
                 </option>
@@ -113,6 +135,7 @@ export default function DecisionsAndHistoryView() {
             >
               <option value="all">Tất cả nhiệm kỳ</option>
               <option value="2026 - 2027">2026 - 2027</option>
+              <option value="2025 - 2027">2025 - 2027</option>
               <option value="2025 - 2026">2025 - 2026</option>
             </select>
           </div>
@@ -185,10 +208,10 @@ export default function DecisionsAndHistoryView() {
           <div className="rounded-2xl border border-border bg-card p-6 shadow-xs space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-xs font-bold text-foreground uppercase tracking-wider">
-                Danh sách quyết định
+                Danh sách quyết định ({filteredDecisions.length})
               </h3>
-              <span className="text-[11px] font-semibold text-muted-foreground bg-muted px-2.5 py-0.5 rounded">
-                Dữ liệu minh họa
+              <span className="text-[11px] font-semibold text-primary bg-primary/10 px-2.5 py-0.5 rounded">
+                Đồng bộ trực tuyến
               </span>
             </div>
 
@@ -205,7 +228,7 @@ export default function DecisionsAndHistoryView() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {decisions.slice(0, 5).map((dec) => {
+                  {filteredDecisions.map((dec) => {
                     const isSelected = activeDecision?.id === dec.id;
                     return (
                       <tr

@@ -29,16 +29,21 @@ export default function OrganizationView() {
   const {
     subsystems,
     units,
+    allUnits,
     profiles,
+    allProfiles,
     selectedUnitId,
     setSelectedUnitId,
   } = useApp();
 
-  // Filters
-  const [selectedSubsystem, setSelectedSubsystem] = useState<SubsystemId>('P06'); // Default to Đơn vị trực thuộc Hội Sinh viên
-  const [unitFilter, setUnitFilter] = useState<string>('unit_clb_truyen_thong');
+  const directoryUnits = allUnits && allUnits.length > 0 ? allUnits : units;
+  const directoryProfiles = allProfiles && allProfiles.length > 0 ? allProfiles : profiles;
+
+  // Filters: Mặc định hiển thị Tất cả phân hệ & Tất cả đơn vị để mọi cán bộ nhập từ Admin hiển thị ngay lập tức
+  const [selectedSubsystem, setSelectedSubsystem] = useState<'all' | SubsystemId>('all');
+  const [unitFilter, setUnitFilter] = useState<string>('all');
   const [positionFilter, setPositionFilter] = useState<string>('all');
-  const [targetDate, setTargetDate] = useState<string>('2026-10-13');
+  const [targetDate, setTargetDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
   const [timeMode, setTimeMode] = useState<'current' | 'history'>('current');
   const [searchQuery, setSearchQuery] = useState<string>('');
 
@@ -47,10 +52,18 @@ export default function OrganizationView() {
 
   // Sync unitFilter with selectedUnitId & auto-sync subsystem
   const handleSelectUnit = (unitId: string) => {
-    setSelectedUnitId(unitId);
     setUnitFilter(unitId);
-    if (unitId !== 'all') {
-      const targetU = units.find((u) => u.id === unitId);
+    if (unitId === 'all') {
+      setSelectedSubsystem('all');
+      return;
+    }
+    setSelectedUnitId(unitId);
+    // Nếu chọn đơn vị cha có nhiều phân hệ con (Đoàn trường, Hội SV, Đoàn cơ sở, Liên chi hội) thì để phân hệ = 'all' để không lọc mất các phân hệ con
+    const hasChildren = directoryUnits.some((u) => u.parent_id === unitId);
+    if (hasChildren) {
+      setSelectedSubsystem('all');
+    } else {
+      const targetU = directoryUnits.find((u) => u.id === unitId);
       if (targetU?.subsystem_id) {
         setSelectedSubsystem(targetU.subsystem_id);
       }
@@ -58,7 +71,10 @@ export default function OrganizationView() {
   };
 
   // Find currently active unit
-  const activeUnit = units.find((u) => u.id === unitFilter) || units.find((u) => u.id === 'unit_clb_truyen_thong') || units[0];
+  const activeUnit =
+    unitFilter === 'all'
+      ? null
+      : directoryUnits.find((u) => u.id === unitFilter) || directoryUnits[0];
 
   // Tập hợp ID của đơn vị đang chọn và các phân hệ con trực thuộc
   const unitAndChildrenIds = useMemo(() => {
@@ -67,7 +83,7 @@ export default function OrganizationView() {
     let added = true;
     while (added) {
       added = false;
-      units.forEach((u) => {
+      directoryUnits.forEach((u) => {
         if (u.parent_id && set.has(u.parent_id) && !set.has(u.id)) {
           set.add(u.id);
           added = true;
@@ -75,45 +91,93 @@ export default function OrganizationView() {
       });
     }
     return set;
-  }, [unitFilter, units]);
+  }, [unitFilter, directoryUnits]);
 
   const dcsSubUnits = useMemo(
-    () => units.filter((u) => u.parent_id === 'unit_doan_co_so' && u.type === 'doan_co_so'),
-    [units]
+    () => directoryUnits.filter((u) => u.parent_id === 'unit_doan_co_so' && u.type === 'doan_co_so'),
+    [directoryUnits]
   );
 
   const lchSubUnits = useMemo(
-    () => units.filter((u) => u.parent_id === 'unit_lien_chi_hoi' && u.type === 'lien_chi_hoi'),
-    [units]
+    () => directoryUnits.filter((u) => u.parent_id === 'unit_lien_chi_hoi' && u.type === 'lien_chi_hoi'),
+    [directoryUnits]
   );
 
   const clbUnits = useMemo(
-    () => units.filter((u) => u.parent_id === 'unit_hoi_sinh_vien' && u.type === 'clb_doi_nhom'),
-    [units]
+    () => directoryUnits.filter((u) => u.parent_id === 'unit_hoi_sinh_vien' && u.type === 'clb_doi_nhom'),
+    [directoryUnits]
   );
 
   // Filter officers based on criteria and Section 1 time rules!
   const filteredOfficers = useMemo(() => {
-    return profiles.flatMap((p) => {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const checkDate = targetDate || todayStr;
+
+    return directoryProfiles.flatMap((p) => {
+      const primaryUnitObj = directoryUnits.find((u) => u.id === p.primary_unit_id);
+      const effectiveRoles =
+        p.roles && p.roles.length > 0
+          ? p.roles
+          : [
+              {
+                id: `role_fallback_${p.id}`,
+                profile_id: p.id,
+                unit_id: p.primary_unit_id || 'unit_doan_truong',
+                unit_name: primaryUnitObj?.name || 'Đoàn trường',
+                subsystem_id: (primaryUnitObj?.subsystem_id || p.primary_subsystem_id || 'P03') as SubsystemId,
+                position_title: 'Cán bộ Đoàn - Hội',
+                term: '2025 - 2027',
+                start_date: p.created_at || todayStr,
+                end_date: null,
+                status: 'active' as const,
+              },
+            ];
+
       // Find matching roles for this officer
-      const matchingRoles = p.roles.filter((r) => {
+      const matchingRoles = effectiveRoles.filter((r) => {
+        const roleUnitObj = directoryUnits.find((u) => u.id === r.unit_id);
+        const resolvedSubsystem = roleUnitObj?.subsystem_id || r.subsystem_id || p.primary_subsystem_id;
+
         // Subsystem match if not all
-        if (selectedSubsystem && r.subsystem_id !== selectedSubsystem) return false;
-
-        // Unit match if specified (including child sub-units when a parent block is selected)
-        if (unitAndChildrenIds && !unitAndChildrenIds.has(r.unit_id)) return false;
-
-        // Position title filter
-        if (positionFilter !== 'all' && !r.position_title.toLowerCase().includes(positionFilter.toLowerCase())) {
+        if (
+          selectedSubsystem !== 'all' &&
+          resolvedSubsystem !== selectedSubsystem &&
+          r.subsystem_id !== selectedSubsystem &&
+          p.primary_subsystem_id !== selectedSubsystem
+        ) {
           return false;
         }
 
-        // Time evaluation according to Section 1:
-        // A role is displayed as current when target date is between start_date and end_date (or end_date is null)
-        const checkDate = targetDate || '2026-10-13';
-        if (r.start_date > checkDate) return false; // Future
-        if (r.end_date && r.end_date < checkDate) {
-          if (timeMode === 'current') return false; // Past ended role, only show in history mode
+        // Unit match if specified (including child sub-units when a parent block is selected)
+        if (unitAndChildrenIds) {
+          const matchesUnitId =
+            unitAndChildrenIds.has(r.unit_id) ||
+            (p.primary_unit_id && unitAndChildrenIds.has(p.primary_unit_id));
+          const matchesUnitName =
+            activeUnit &&
+            r.unit_name &&
+            r.unit_name.toLowerCase() === activeUnit.name.toLowerCase();
+          if (!matchesUnitId && !matchesUnitName) return false;
+        }
+
+        // Position title filter
+        if (
+          positionFilter !== 'all' &&
+          !r.position_title.toLowerCase().includes(positionFilter.toLowerCase())
+        ) {
+          return false;
+        }
+
+        // Time evaluation:
+        // Ở chế độ Hiện tại ('current'), hiển thị toàn bộ chức vụ đang hoạt động (status !== 'ended') và chưa hết hạn trước thời điểm tra cứu
+        if (timeMode === 'current') {
+          if (r.status === 'ended') return false;
+          if (r.end_date && r.end_date < checkDate) return false;
+          // Chỉ ẩn chức vụ tương lai nếu người dùng chọn ngày tra cứu nhỏ hơn ngày bắt đầu và status === 'future'
+          if (r.status === 'future' && r.start_date > checkDate) return false;
+        } else {
+          // Chế độ Lịch sử ('history'): hiển thị tất cả chức vụ đã bắt đầu tính đến thời điểm tra cứu
+          if (checkDate && r.start_date > checkDate && checkDate < todayStr) return false;
         }
 
         return true;
@@ -123,35 +187,72 @@ export default function OrganizationView() {
       if (searchQuery.trim()) {
         const query = searchQuery.toLowerCase();
         const matchesName = p.full_name.toLowerCase().includes(query);
-        const matchesMssv = p.student_id?.toLowerCase().includes(query);
+        const matchesMssv =
+          p.student_id?.toLowerCase().includes(query) || p.staff_id?.toLowerCase().includes(query);
+        const matchesEmail = p.email?.toLowerCase().includes(query);
+        const matchesUnit = matchingRoles.some((r) => r.unit_name?.toLowerCase().includes(query));
         const matchesRole = matchingRoles.some((r) => r.position_title.toLowerCase().includes(query));
-        if (!matchesName && !matchesMssv && !matchesRole) return [];
+        if (!matchesName && !matchesMssv && !matchesEmail && !matchesUnit && !matchesRole) return [];
       }
 
       return matchingRoles.map((role) => ({
         profile: p,
-        role,
+        role: {
+          ...role,
+          unit_name:
+            directoryUnits.find((u) => u.id === role.unit_id)?.name || role.unit_name || 'Đoàn trường',
+        },
       }));
     });
-  }, [profiles, selectedSubsystem, unitAndChildrenIds, positionFilter, targetDate, timeMode, searchQuery]);
+  }, [
+    directoryProfiles,
+    directoryUnits,
+    selectedSubsystem,
+    unitAndChildrenIds,
+    activeUnit,
+    positionFilter,
+    targetDate,
+    timeMode,
+    searchQuery,
+  ]);
+
+  const uniqueMatchedOfficerCount = useMemo(
+    () => new Set(filteredOfficers.map((item) => item.profile.id)).size,
+    [filteredOfficers]
+  );
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
       {/* 1. TOP HEADER & BREADCRUMB */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-black text-foreground tracking-tight">Tra cứu tổ chức và cán bộ</h1>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Theo dõi cơ cấu 7 phân hệ nhân sự và danh sách cán bộ theo mốc thời gian
+            Theo dõi cơ cấu 7 phân hệ nhân sự và danh sách cán bộ toàn trường đồng bộ trực tiếp từ trang Quản trị
           </p>
         </div>
-        <span className="text-[11px] font-semibold text-muted-foreground bg-muted px-2.5 py-1 rounded-lg">
-          Dữ liệu minh họa
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] font-bold text-primary bg-primary/10 border border-primary/20 px-3 py-1 rounded-xl">
+            Tổng hệ thống: {directoryProfiles.length} cán bộ • {directoryUnits.length} đơn vị
+          </span>
+        </div>
       </div>
 
-      {/* 2. 7 PILL TABS OF SUBSYSTEMS (MỤC 1 & SCREEN 1 MOCKUP) */}
+      {/* 2. PILL TABS OF SUBSYSTEMS (MỤC 1 & SCREEN 1 MOCKUP) */}
       <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+        <button
+          onClick={() => {
+            setSelectedSubsystem('all');
+            setUnitFilter('all');
+          }}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap shadow-2xs ${
+            selectedSubsystem === 'all'
+              ? 'bg-primary text-primary-foreground shadow-sm'
+              : 'bg-card border border-border text-foreground hover:bg-muted'
+          }`}
+        >
+          Tất cả phân hệ ({directoryProfiles.length})
+        </button>
         {subsystems.map((sub) => {
           const isActive = selectedSubsystem === sub.id;
           return (
@@ -159,9 +260,7 @@ export default function OrganizationView() {
               key={sub.id}
               onClick={() => {
                 setSelectedSubsystem(sub.id);
-                // Also adjust default unit for subsystem
-                const defaultUnit = units.find((u) => u.subsystem_id === sub.id);
-                if (defaultUnit) handleSelectUnit(defaultUnit.id);
+                setUnitFilter('all');
               }}
               className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap shadow-2xs ${
                 isActive
@@ -183,9 +282,16 @@ export default function OrganizationView() {
             <label className="text-[11px] font-bold text-foreground">Phân hệ</label>
             <select
               value={selectedSubsystem}
-              onChange={(e) => setSelectedSubsystem(e.target.value as SubsystemId)}
+              onChange={(e) => {
+                const val = e.target.value as 'all' | SubsystemId;
+                setSelectedSubsystem(val);
+                if (val !== 'all') {
+                  setUnitFilter('all');
+                }
+              }}
               className="mt-1 w-full rounded-xl border border-border bg-background px-3 py-2 text-xs font-semibold text-foreground focus:border-primary focus:outline-hidden"
             >
+              <option value="all">Tất cả phân hệ (7 phân hệ)</option>
               {subsystems.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name}
@@ -202,8 +308,8 @@ export default function OrganizationView() {
               onChange={(e) => handleSelectUnit(e.target.value)}
               className="mt-1 w-full rounded-xl border border-border bg-background px-3 py-2 text-xs font-semibold text-foreground focus:border-primary focus:outline-hidden"
             >
-              <option value="all">Tất cả đơn vị</option>
-              {units.map((u) => (
+              <option value="all">Tất cả đơn vị ({directoryUnits.length} đơn vị)</option>
+              {directoryUnits.map((u) => (
                 <option key={u.id} value={u.id}>
                   {u.name}
                 </option>
@@ -219,11 +325,12 @@ export default function OrganizationView() {
               onChange={(e) => setPositionFilter(e.target.value)}
               className="mt-1 w-full rounded-xl border border-border bg-background px-3 py-2 text-xs font-semibold text-foreground focus:border-primary focus:outline-hidden"
             >
-              <option value="all">Tất cả</option>
-              <option value="Chủ nhiệm">Chủ nhiệm</option>
-              <option value="Phó chủ nhiệm">Phó chủ nhiệm</option>
-              <option value="Bí thư">Bí thư</option>
-              <option value="Ủy viên">Ủy viên</option>
+              <option value="all">Tất cả chức vụ</option>
+              <option value="Bí thư">Bí thư / Phó Bí thư</option>
+              <option value="Chủ tịch">Chủ tịch / Phó Chủ tịch</option>
+              <option value="Liên chi hội trưởng">Liên chi hội trưởng / Phó</option>
+              <option value="Chủ nhiệm">Chủ nhiệm / Phó chủ nhiệm</option>
+              <option value="Ủy viên">Ủy viên BCH / BTV</option>
               <option value="Thành viên">Thành viên</option>
             </select>
           </div>
@@ -233,13 +340,11 @@ export default function OrganizationView() {
             <label className="text-[11px] font-bold text-foreground">Thời điểm</label>
             <div className="relative mt-1">
               <input
-                type="text"
+                type="date"
                 value={targetDate}
                 onChange={(e) => setTargetDate(e.target.value)}
-                placeholder="YYYY-MM-DD"
-                className="w-full rounded-xl border border-border bg-background px-3 py-2 text-xs font-semibold text-foreground pr-8 focus:border-primary focus:outline-hidden"
+                className="w-full rounded-xl border border-border bg-background px-3 py-2 text-xs font-semibold text-foreground focus:border-primary focus:outline-hidden"
               />
-              <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
             </div>
           </div>
         </div>
@@ -247,27 +352,43 @@ export default function OrganizationView() {
         {/* Bottom row: Time toggle & Search */}
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-2 border-t border-border">
           {/* Hiện tại / Lịch sử Toggle */}
-          <div className="flex items-center rounded-xl border border-border p-1 bg-muted/40 shrink-0">
-            <button
-              onClick={() => setTimeMode('current')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                timeMode === 'current'
-                  ? 'bg-primary text-primary-foreground shadow-xs'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              Hiện tại
-            </button>
-            <button
-              onClick={() => setTimeMode('history')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                timeMode === 'history'
-                  ? 'bg-primary text-primary-foreground shadow-xs'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              Lịch sử
-            </button>
+          <div className="flex items-center gap-2">
+            <div className="flex items-center rounded-xl border border-border p-1 bg-muted/40 shrink-0">
+              <button
+                onClick={() => setTimeMode('current')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  timeMode === 'current'
+                    ? 'bg-primary text-primary-foreground shadow-xs'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                Hiện tại
+              </button>
+              <button
+                onClick={() => setTimeMode('history')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  timeMode === 'history'
+                    ? 'bg-primary text-primary-foreground shadow-xs'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                Lịch sử
+              </button>
+            </div>
+
+            {(selectedSubsystem !== 'all' || unitFilter !== 'all' || positionFilter !== 'all' || searchQuery) && (
+              <button
+                onClick={() => {
+                  setSelectedSubsystem('all');
+                  setUnitFilter('all');
+                  setPositionFilter('all');
+                  setSearchQuery('');
+                }}
+                className="px-3 py-1.5 rounded-xl border border-border bg-background hover:bg-muted text-xs font-bold text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+              >
+                Xóa bộ lọc
+              </button>
+            )}
           </div>
 
           {/* Search bar & Search button */}
@@ -278,11 +399,14 @@ export default function OrganizationView() {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Tìm kiếm theo họ tên, chức vụ..."
+                placeholder="Tìm theo họ tên, MSSV, email, chức vụ, đơn vị..."
                 className="w-full rounded-xl border border-border bg-background py-1.5 pl-9 pr-3 text-xs text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-hidden"
               />
             </div>
-            <button className="px-4 py-2 rounded-xl bg-primary text-primary-foreground text-xs font-bold shadow-xs hover:bg-primary/90 transition-all cursor-pointer shrink-0">
+            <button
+              onClick={() => setSearchQuery((q) => q.trim())}
+              className="px-4 py-2 rounded-xl bg-primary text-primary-foreground text-xs font-bold shadow-xs hover:bg-primary/90 transition-all cursor-pointer shrink-0"
+            >
               Tìm kiếm
             </button>
           </div>
@@ -294,7 +418,19 @@ export default function OrganizationView() {
         {/* LEFT COLUMN (1/3): CƠ CẤU TỔ CHỨC TREE */}
         <div className="lg:col-span-4">
           <div className="rounded-2xl border border-border bg-card p-5 shadow-xs space-y-4">
-            <h3 className="text-xs font-bold text-foreground uppercase tracking-wider">Cơ cấu tổ chức</h3>
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-bold text-foreground uppercase tracking-wider">Cơ cấu tổ chức</h3>
+              <button
+                onClick={() => handleSelectUnit('all')}
+                className={`text-[11px] font-bold px-2.5 py-1 rounded-lg transition-colors cursor-pointer ${
+                  unitFilter === 'all'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-muted text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                Toàn trường ({directoryProfiles.length})
+              </button>
+            </div>
 
             {/* Tree nodes */}
             <div className="space-y-2 text-xs max-h-[560px] overflow-y-auto pr-1">
@@ -462,20 +598,28 @@ export default function OrganizationView() {
         <div className="lg:col-span-8">
           <div className="rounded-2xl border border-border bg-card p-6 shadow-xs space-y-5">
             {/* Header of Unit Card */}
-            <div className="flex items-center justify-between pb-3 border-b border-border">
+            <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-border">
               <div>
-                <h2 className="text-xl font-black text-foreground tracking-tight">{activeUnit.name}</h2>
+                <h2 className="text-xl font-black text-foreground tracking-tight">
+                  {activeUnit ? activeUnit.name : 'Danh sách cán bộ Đoàn – Hội toàn trường'}
+                </h2>
                 <p className="text-xs text-muted-foreground font-semibold mt-0.5">
-                  {activeUnit.type === 'clb_doi_nhom'
-                    ? 'Ban chủ nhiệm'
-                    : activeUnit.type === 'don_vi_chuc_nang'
-                    ? 'Ban điều hành'
-                    : 'Ban Chấp hành'}
+                  {activeUnit
+                    ? activeUnit.type === 'clb_doi_nhom'
+                      ? 'Ban chủ nhiệm'
+                      : activeUnit.type === 'don_vi_chuc_nang'
+                      ? 'Ban điều hành'
+                      : 'Ban Chấp hành & Cán bộ trực thuộc'
+                    : selectedSubsystem === 'all'
+                    ? 'Tất cả 7 phân hệ tổ chức Đoàn TNCS Hồ Chí Minh & Hội Sinh viên Trường'
+                    : subsystems.find((s) => s.id === selectedSubsystem)?.name}
                 </p>
               </div>
-              <span className="text-[11px] font-semibold text-muted-foreground bg-muted px-2.5 py-1 rounded-lg">
-                Dữ liệu minh họa
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-bold text-emerald-700 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-lg">
+                  {uniqueMatchedOfficerCount} cán bộ • {filteredOfficers.length} chức vụ
+                </span>
+              </div>
             </div>
 
             {/* Table of Members */}
@@ -485,6 +629,7 @@ export default function OrganizationView() {
                   <tr className="border-b border-border text-muted-foreground font-bold">
                     <th className="py-3 px-3 w-12 text-center">STT</th>
                     <th className="py-3 px-3">Họ và tên</th>
+                    <th className="py-3 px-3">Đơn vị</th>
                     <th className="py-3 px-3">Chức vụ</th>
                     <th className="py-3 px-3">Thời gian đảm nhiệm</th>
                     <th className="py-3 px-3 text-right">Thao tác</th>
@@ -493,27 +638,30 @@ export default function OrganizationView() {
                 <tbody className="divide-y divide-border">
                   {filteredOfficers.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="py-8 text-center text-muted-foreground">
-                        Không tìm thấy cán bộ nào phù hợp với bộ lọc.
+                      <td colSpan={6} className="py-8 text-center text-muted-foreground">
+                        Không tìm thấy cán bộ nào phù hợp với bộ lọc hiện tại.
                       </td>
                     </tr>
                   ) : (
                     filteredOfficers.map((item, idx) => (
-                      <tr key={item.role.id + idx} className="hover:bg-muted/40 transition-colors">
+                      <tr key={item.role.id + '_' + idx} className="hover:bg-muted/40 transition-colors">
                         <td className="py-3 px-3 text-center text-muted-foreground font-semibold">
                           {idx + 1}
                         </td>
                         <td className="py-3 px-3">
                           <span className="font-bold text-foreground block">{item.profile.full_name}</span>
                           <span className="text-[10px] text-muted-foreground">
-                            MSSV: {item.profile.student_id || item.profile.staff_id}
+                            MSSV/Mã CB: {item.profile.student_id || item.profile.staff_id || item.profile.profile_code}
                           </span>
+                        </td>
+                        <td className="py-3 px-3 text-muted-foreground font-medium">
+                          {item.role.unit_name}
                         </td>
                         <td className="py-3 px-3 font-semibold text-foreground">
                           {item.role.position_title}
                         </td>
                         <td className="py-3 px-3 text-muted-foreground">
-                          {item.role.start_date.substring(0, 7)} –{' '}
+                          {(item.role.start_date || '').substring(0, 7)} –{' '}
                           {item.role.end_date ? item.role.end_date.substring(0, 7) : 'Hiện tại'}
                         </td>
                         <td className="py-3 px-3 text-right">
@@ -537,16 +685,17 @@ export default function OrganizationView() {
       {/* 5. VIEW PROFILE MODAL */}
       {viewingProfile && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-in fade-in">
-          <div className="w-full max-w-lg rounded-3xl border border-border bg-card p-6 shadow-2xl space-y-5 animate-in zoom-in-95">
+          <div className="w-full max-w-lg rounded-3xl border border-border bg-card p-6 shadow-2xl space-y-5 animate-in zoom-in-95 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-3 border-b border-border">
               <div className="flex items-center gap-3">
                 <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary font-black text-lg">
-                  {viewingProfile.full_name.split(' ').slice(-1)[0][0]}
+                  {viewingProfile.full_name.split(' ').slice(-1)[0]?.[0] || 'U'}
                 </div>
                 <div>
                   <h3 className="text-base font-bold text-foreground">{viewingProfile.full_name}</h3>
                   <p className="text-xs text-muted-foreground">
-                    MSSV: {viewingProfile.student_id} • {viewingProfile.major}
+                    MSSV/Mã CB: {viewingProfile.student_id || viewingProfile.staff_id} •{' '}
+                    {viewingProfile.major || viewingProfile.qualification || 'HCMUTE'}
                   </p>
                 </div>
               </div>
@@ -565,32 +714,54 @@ export default function OrganizationView() {
                 <span className="font-mono font-bold text-foreground">{viewingProfile.profile_code}</span>
               </div>
               <div className="p-3 rounded-xl bg-muted/40">
-                <span className="text-[10px] text-muted-foreground block font-bold">Tình trạng Đoàn</span>
+                <span className="text-[10px] text-muted-foreground block font-bold">Email liên hệ</span>
+                <span className="font-semibold text-foreground break-all">{viewingProfile.email || '—'}</span>
+              </div>
+              <div className="p-3 rounded-xl bg-muted/40">
+                <span className="text-[10px] text-muted-foreground block font-bold">Số điện thoại</span>
+                <span className="font-semibold text-foreground">{viewingProfile.phone || '—'}</span>
+              </div>
+              <div className="p-3 rounded-xl bg-muted/40">
+                <span className="text-[10px] text-muted-foreground block font-bold">Ngày sinh & Giới tính</span>
                 <span className="font-semibold text-foreground">
-                  {viewingProfile.is_union_member ? 'Đoàn viên' : 'Chưa kết nạp'}
+                  {viewingProfile.date_of_birth || '—'} ({viewingProfile.gender || 'Nam'})
+                </span>
+              </div>
+              <div className="p-3 rounded-xl bg-muted/40">
+                <span className="text-[10px] text-muted-foreground block font-bold">Tình trạng Đoàn / Đảng</span>
+                <span className="font-semibold text-foreground">
+                  {viewingProfile.is_union_member ? 'Đoàn viên' : 'Hội viên'}{' '}
+                  {viewingProfile.is_party_member ? '• Đảng viên' : ''}
+                </span>
+              </div>
+              <div className="p-3 rounded-xl bg-muted/40">
+                <span className="text-[10px] text-muted-foreground block font-bold">Chuyên môn / Lý luận CT</span>
+                <span className="font-semibold text-foreground">
+                  {viewingProfile.qualification || 'Sinh viên'} • {viewingProfile.political_theory || 'Sơ cấp'}
                 </span>
               </div>
               <div className="p-3 rounded-xl bg-muted/40">
                 <span className="text-[10px] text-muted-foreground block font-bold">Quê quán</span>
-                <span className="font-semibold text-foreground">{viewingProfile.hometown}</span>
+                <span className="font-semibold text-foreground">{viewingProfile.hometown || '—'}</span>
               </div>
               <div className="p-3 rounded-xl bg-muted/40">
                 <span className="text-[10px] text-muted-foreground block font-bold">Nơi ở hiện nay</span>
-                <span className="font-semibold text-foreground">{viewingProfile.current_residence}</span>
+                <span className="font-semibold text-foreground">{viewingProfile.current_residence || '—'}</span>
               </div>
             </div>
 
             {/* Roles list */}
             <div>
               <p className="text-xs font-bold text-foreground uppercase tracking-wider mb-2">
-                Các chức vụ đang đảm nhiệm ({viewingProfile.roles.length})
+                Các chức vụ đảm nhiệm ({viewingProfile.roles.length})
               </p>
               <div className="space-y-2">
                 {viewingProfile.roles.map((r) => (
                   <div key={r.id} className="p-2.5 rounded-xl border border-border bg-background text-xs">
                     <p className="font-bold text-foreground">{r.position_title}</p>
                     <p className="text-[11px] text-muted-foreground">
-                      {r.unit_name} • Từ {r.start_date} đến {r.end_date || 'Hiện tại'}
+                      {directoryUnits.find((u) => u.id === r.unit_id)?.name || r.unit_name} • Nhiệm kỳ{' '}
+                      {r.term || '2025 - 2027'} • Từ {r.start_date} đến {r.end_date || 'Hiện tại'}
                     </p>
                   </div>
                 ))}

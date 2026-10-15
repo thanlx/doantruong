@@ -34,7 +34,13 @@ export default function MyProfileView() {
     submitProfileUpdateRequest,
   } = useApp();
 
-  const profile = profiles.find((p) => p.id === currentUser.profile_id) || profiles[0];
+  const profile =
+    profiles.find((p) => p.id === currentUser.profile_id) ||
+    profiles.find((p) => p.email?.toLowerCase() === currentUser.email?.toLowerCase()) ||
+    profiles.find(
+      (p) => currentUser.student_id && p.student_id?.toLowerCase() === currentUser.student_id?.toLowerCase()
+    ) ||
+    profiles[0];
 
   const [activeTab, setActiveTab] = useState<'ca_nhan' | 'chuyen_mon' | 'doan_dang' | 'chuc_vu' | 'lich_su'>('ca_nhan');
   const [isEditing, setIsEditing] = useState(false);

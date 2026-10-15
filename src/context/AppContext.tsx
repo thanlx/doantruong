@@ -1888,12 +1888,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         // Add new role to beneficiary
         updatedProfiles = updatedProfiles.map((p) => {
           if (p.id === line.profile_id) {
+            const targetUnit = units.find((u) => u.id === line.unit_id);
+            const resolvedSubsystem: SubsystemId = targetUnit?.subsystem_id || p.primary_subsystem_id || 'P03';
             const newRole = {
               id: 'role_' + Date.now() + Math.random().toString(36).substring(2, 5),
               profile_id: p.id,
               unit_id: line.unit_id,
-              unit_name: line.unit_name,
-              subsystem_id: 'P06' as SubsystemId,
+              unit_name: targetUnit?.name || line.unit_name,
+              subsystem_id: resolvedSubsystem,
               position_title: line.position_title,
               term: decisionData.term || '2026 - 2027',
               start_date: line.start_date || decisionData.effective_date,
@@ -1904,6 +1906,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             };
             return {
               ...p,
+              primary_unit_id: line.unit_id || p.primary_unit_id,
+              primary_subsystem_id: resolvedSubsystem,
               roles: [...p.roles, newRole],
             };
           }
@@ -2600,6 +2604,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         // Match unit in units (hỗ trợ khớp cả tên đầy đủ, mã đơn vị, lẫn tên Khoa/Viện rút gọn)
         const cleanUnitNameLower = unitName.toLowerCase();
+        const explicitSubsystemRaw = String(row.subsystem_id || row['Phân hệ'] || '').trim().toUpperCase();
+        const hasExplicitSubsystem = ['P01', 'P02', 'P03', 'P04', 'P05', 'P06', 'P07'].includes(explicitSubsystemRaw);
+
         const matchedUnit =
           units.find(
             (u) =>
@@ -2619,6 +2626,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           units.find((u) => u.name.toLowerCase().includes(cleanUnitNameLower)) ||
           units[0];
 
+        const resolvedSubsystemId: SubsystemId = (
+          matchedUnit?.subsystem_id ||
+          (hasExplicitSubsystem ? explicitSubsystemRaw : subsystemId)
+        ) as SubsystemId;
+        const resolvedUnitName = matchedUnit?.name || unitName || 'Đoàn trường';
+
         // Check if profile already exists
         const existingIdx = nextProfiles.findIndex(
           (p) =>
@@ -2635,7 +2648,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const existing = nextProfiles[existingIdx];
           const hasRole = existing.roles.some(
             (r) =>
-              r.unit_name.toLowerCase() === unitName.toLowerCase() &&
+              (r.unit_id === matchedUnit?.id || r.unit_name.toLowerCase() === resolvedUnitName.toLowerCase()) &&
               r.position_title.toLowerCase() === positionTitle.toLowerCase()
           );
           const updatedRoles = hasRole
@@ -2646,8 +2659,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                   id: `role_imp_${Date.now()}_${idx}`,
                   profile_id: existing.id,
                   unit_id: matchedUnit?.id || 'unit_doan_truong',
-                  unit_name: unitName || matchedUnit?.name || 'Đoàn trường',
-                  subsystem_id: subsystemId,
+                  unit_name: resolvedUnitName,
+                  subsystem_id: resolvedSubsystemId,
                   position_title: positionTitle,
                   term,
                   start_date: todayStr,
@@ -2672,6 +2685,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             qualification: qualification || existing.qualification,
             political_theory: politicalTheory || existing.political_theory,
             is_party_member: isParty || existing.is_party_member,
+            primary_unit_id: matchedUnit?.id || existing.primary_unit_id,
+            primary_subsystem_id: resolvedSubsystemId || existing.primary_subsystem_id,
             roles: updatedRoles,
             version: (existing.version || 1) + 1,
             updated_at: todayStr,
@@ -2705,7 +2720,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             email,
             phone,
             verification_status: 'verified',
-            primary_subsystem_id: subsystemId,
+            primary_subsystem_id: resolvedSubsystemId,
             primary_unit_id: matchedUnit?.id || 'unit_doan_truong',
             version: 1,
             created_at: todayStr,
@@ -2715,8 +2730,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 id: `role_imp_${Date.now()}_${idx}`,
                 profile_id: newProfId,
                 unit_id: matchedUnit?.id || 'unit_doan_truong',
-                unit_name: unitName || matchedUnit?.name || 'Đoàn trường',
-                subsystem_id: subsystemId,
+                unit_name: resolvedUnitName,
+                subsystem_id: resolvedSubsystemId,
                 position_title: positionTitle,
                 term,
                 start_date: todayStr,
@@ -2749,7 +2764,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               roles: ['can_bo_ca_nhan'],
               current_role: 'can_bo_ca_nhan',
               scope_unit_id: matchedUnit?.id || 'unit_doan_truong',
-              scope_unit_name: unitName || matchedUnit?.name || 'Đoàn trường',
+              scope_unit_name: resolvedUnitName,
               portal_mode: 'user',
               is_active: true,
             });
@@ -2823,15 +2838,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const getUniqueOfficerCount = useCallback(
     (unitId?: string, dateStr?: string) => {
-      const targetDate = dateStr || '2026-10-13';
+      const todayStr = new Date().toISOString().split('T')[0];
+      const targetDate = dateStr || todayStr;
       const uniqueIds = new Set<string>();
       const validUnitSet = getDescendantUnitIdSet(unitId);
 
       profiles.forEach((p) => {
-        const activeRoles = p.roles.filter((r) => {
-          if (validUnitSet && !validUnitSet.has(r.unit_id)) return false;
-          if (r.start_date > targetDate) return false;
+        const rolesToCheck =
+          p.roles && p.roles.length > 0
+            ? p.roles
+            : [
+                {
+                  unit_id: p.primary_unit_id,
+                  start_date: p.created_at || '2025-01-01',
+                  end_date: null,
+                  status: 'active' as const,
+                },
+              ];
+
+        const activeRoles = rolesToCheck.filter((r) => {
+          if (validUnitSet && !validUnitSet.has(r.unit_id) && !validUnitSet.has(p.primary_unit_id)) return false;
+          if (dateStr && r.start_date > targetDate) return false;
           if (r.end_date && r.end_date < targetDate) return false;
+          if (!dateStr && r.status === 'ended') return false;
           return true;
         });
 
@@ -2847,15 +2876,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const getTotalRoleCount = useCallback(
     (unitId?: string, dateStr?: string) => {
-      const targetDate = dateStr || '2026-10-13';
+      const todayStr = new Date().toISOString().split('T')[0];
+      const targetDate = dateStr || todayStr;
       let total = 0;
       const validUnitSet = getDescendantUnitIdSet(unitId);
 
       profiles.forEach((p) => {
-        const activeRoles = p.roles.filter((r) => {
-          if (validUnitSet && !validUnitSet.has(r.unit_id)) return false;
-          if (r.start_date > targetDate) return false;
+        const rolesToCheck =
+          p.roles && p.roles.length > 0
+            ? p.roles
+            : [
+                {
+                  unit_id: p.primary_unit_id,
+                  start_date: p.created_at || '2025-01-01',
+                  end_date: null,
+                  status: 'active' as const,
+                },
+              ];
+
+        const activeRoles = rolesToCheck.filter((r) => {
+          if (validUnitSet && !validUnitSet.has(r.unit_id) && !validUnitSet.has(p.primary_unit_id)) return false;
+          if (dateStr && r.start_date > targetDate) return false;
           if (r.end_date && r.end_date < targetDate) return false;
+          if (!dateStr && r.status === 'ended') return false;
           return true;
         });
         total += activeRoles.length;
