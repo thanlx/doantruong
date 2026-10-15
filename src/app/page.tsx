@@ -47,6 +47,8 @@ export default function Home() {
     adminTab,
     authUser,
     isAuthLoading,
+    canAccessAdminPortal,
+    allowedAdminTabs,
   } = useApp();
 
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
@@ -70,10 +72,14 @@ export default function Home() {
     return <LoginPage />;
   }
 
-  // Render view tương ứng theo portalMode và Tab hiện tại
+  // Render view tương ứng theo portalMode, quyền truy cập Admin và Tab được cấp quyền
   const renderCurrentView = () => {
-    if (portalMode === 'admin') {
-      switch (adminTab) {
+    if (portalMode === 'admin' && canAccessAdminPortal) {
+      const effectiveTab = allowedAdminTabs.includes(adminTab)
+        ? adminTab
+        : allowedAdminTabs[0] || 'tong_quan';
+
+      switch (effectiveTab) {
         case 'tong_quan':
           return <AdminDashboardView />;
         case 'ho_so':

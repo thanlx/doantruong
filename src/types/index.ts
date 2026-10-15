@@ -342,6 +342,7 @@ export interface SystemConfig {
 export type UserRole =
   | 'can_bo_ca_nhan'
   | 'quan_ly_don_vi'
+  | 'admin_don_vi'
   | 'nguoi_duyet'
   | 'lanh_dao'
   | 'admin';
@@ -358,6 +359,8 @@ export interface AppUser {
   current_role: UserRole;
   scope_unit_id?: string | null;
   scope_unit_name: string;
+  managed_unit_ids?: string[];
+  allowed_admin_tabs?: string[];
   portal_mode: 'user' | 'admin';
   username?: string;
   password?: string;

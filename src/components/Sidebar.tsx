@@ -45,6 +45,10 @@ export default function Sidebar({ onItemClick, onNavigate }: SidebarProps) {
     setAdminTab,
     notifications,
     updateRequests,
+    canAccessAdminPortal,
+    allowedAdminTabs,
+    currentUser,
+    isGlobalScope,
   } = useApp();
 
   const unreadNotifications = notifications.filter((n) => !n.is_read).length;
@@ -65,7 +69,7 @@ export default function Sidebar({ onItemClick, onNavigate }: SidebarProps) {
     { id: 'tai_khoan', label: 'Tài khoản', icon: <Settings className="h-4.5 w-4.5" /> },
   ];
 
-  const adminMenuItems: { id: AdminTab; label: string; icon: React.ReactNode; badge?: number }[] = [
+  const allAdminMenuItems: { id: AdminTab; label: string; icon: React.ReactNode; badge?: number }[] = [
     { id: 'tong_quan', label: 'Tổng quan', icon: <LayoutDashboard className="h-4.5 w-4.5" /> },
     { id: 'ho_so', label: 'Hồ sơ cán bộ', icon: <Users className="h-4.5 w-4.5" /> },
     { id: 'to_chuc', label: 'Tổ chức và chức vụ', icon: <Network className="h-4.5 w-4.5" /> },
@@ -84,6 +88,10 @@ export default function Sidebar({ onItemClick, onNavigate }: SidebarProps) {
     { id: 'nhat_ky', label: 'Nhật ký', icon: <FileClock className="h-4.5 w-4.5" /> },
   ];
 
+  // Chỉ hiển thị các chức năng quản trị mà người dùng được cấp quyền
+  const adminMenuItems = allAdminMenuItems.filter((item) => allowedAdminTabs.includes(item.id));
+  const isAdminView = portalMode === 'admin' && canAccessAdminPortal;
+
   return (
     <aside className="w-64 flex flex-col h-full bg-[#005BAA] text-white shadow-md select-none shrink-0">
       {/* BRAND HEADER */}
@@ -99,17 +107,27 @@ export default function Sidebar({ onItemClick, onNavigate }: SidebarProps) {
             </div>
           </div>
 
-          {portalMode === 'admin' && (
+          {isAdminView && (
             <span className="px-2 py-0.5 rounded-md bg-white/20 text-[10px] font-extrabold uppercase tracking-wider text-white border border-white/30">
-              Admin
+              {isGlobalScope ? 'Admin Trường' : 'Admin Đơn vị'}
             </span>
           )}
         </div>
+        {isAdminView && (
+          <div className="mt-2.5 px-2.5 py-1.5 rounded-lg bg-white/10 border border-white/15 text-[10px] text-white/90 flex items-center justify-between">
+            <span className="truncate font-semibold">
+              Phạm vi: {currentUser.scope_unit_name || (isGlobalScope ? 'Toàn trường' : 'Đơn vị')}
+            </span>
+            <span className="shrink-0 font-bold text-amber-300 ml-1">
+              {adminMenuItems.length} quyền
+            </span>
+          </div>
+        )}
       </div>
 
       {/* NAV ITEMS */}
       <nav className="flex-1 overflow-y-auto p-3 space-y-1 scrollbar-thin">
-        {portalMode === 'user' ? (
+        {!isAdminView ? (
           <>
             <div className="px-3 py-1.5 text-[10px] font-bold text-white/50 uppercase tracking-wider">
               Cán bộ cá nhân
@@ -145,7 +163,7 @@ export default function Sidebar({ onItemClick, onNavigate }: SidebarProps) {
         ) : (
           <>
             <div className="px-3 py-1.5 text-[10px] font-bold text-white/50 uppercase tracking-wider">
-              Quản trị hệ thống
+              Phân hệ được cấp quyền ({adminMenuItems.length})
             </div>
             {adminMenuItems.map((item) => {
               const isActive = adminTab === item.id;
@@ -180,8 +198,8 @@ export default function Sidebar({ onItemClick, onNavigate }: SidebarProps) {
 
       {/* FOOTER */}
       <div className="p-4 border-t border-white/10 text-center">
-        <p className="text-[10px] text-white/60 font-medium">Phiên bản 1.0 | Ngày 13/10/2026</p>
-        <p className="text-[9px] text-white/40 mt-0.5">Đoàn trường – Hội Sinh viên</p>
+        <p className="text-[10px] text-white/60 font-medium">Phiên bản 1.0 | Ngày 15/10/2026</p>
+        <p className="text-[9px] text-white/40 mt-0.5">Đoàn trường – Hội Sinh viên HCMUTE</p>
       </div>
     </aside>
   );

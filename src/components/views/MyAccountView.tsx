@@ -5,7 +5,7 @@
 // ==============================================================================
 
 import React, { useState, useRef } from 'react';
-import { useApp } from '@/context/AppContext';
+import { useApp, ADMIN_TAB_DEFINITIONS } from '@/context/AppContext';
 import {
   User,
   Shield,
@@ -23,7 +23,8 @@ import {
 } from 'lucide-react';
 
 const ROLE_LABELS: Record<string, string> = {
-  admin: 'Quản trị hệ thống',
+  admin: 'Admin Toàn trường',
+  admin_don_vi: 'Admin Quản trị Đơn vị',
   lanh_dao: 'Lãnh đạo',
   nguoi_duyet: 'Người duyệt',
   quan_ly_don_vi: 'Quản lý đơn vị',
@@ -31,7 +32,7 @@ const ROLE_LABELS: Record<string, string> = {
 };
 
 export default function MyAccountView() {
-  const { currentUser, setUserTab, signOut, changePassword, updateCurrentUserAvatar, addAuditLog } = useApp();
+  const { currentUser, setUserTab, signOut, changePassword, updateCurrentUserAvatar, addAuditLog, canAccessAdminPortal, allowedAdminTabs } = useApp();
   const avatarInputRef = useRef<HTMLInputElement>(null);
 
   const [activeTab, setActiveTab] = useState<'dang_nhap' | 'bao_mat' | 'thong_bao'>('bao_mat');
@@ -361,14 +362,39 @@ export default function MyAccountView() {
               </div>
 
               <div className="flex items-center gap-2">
-                <span className="text-muted-foreground font-medium w-20">Phạm vi:</span>
-                <strong className="text-foreground">{currentUser.scope_unit_name || 'Toàn trường'}</strong>
+                <span className="text-muted-foreground font-medium w-24 shrink-0">Phạm vi:</span>
+                <strong className="text-foreground">
+                  {canAccessAdminPortal ? (currentUser.scope_unit_name || 'Toàn trường') : 'Cổng cá nhân (Không có quyền Quản trị)'}
+                </strong>
+              </div>
+
+              <div className="flex items-start gap-2">
+                <span className="text-muted-foreground font-medium w-24 shrink-0 mt-0.5">Menu Quản trị:</span>
+                {canAccessAdminPortal ? (
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {allowedAdminTabs.map((tabId) => {
+                      const def = ADMIN_TAB_DEFINITIONS.find((t) => t.id === tabId);
+                      return (
+                        <span
+                          key={tabId}
+                          className="px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-700 border border-emerald-500/20 text-[10px] font-bold"
+                        >
+                          {def ? def.label : tabId}
+                        </span>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <span className="text-muted-foreground italic text-[11px]">
+                    Chưa được cấp quyền truy cập Trang quản trị
+                  </span>
+                )}
               </div>
 
               <div className="flex items-start gap-2 pt-1 border-t border-border">
-                <span className="text-muted-foreground font-medium w-20 shrink-0">Ghi chú:</span>
+                <span className="text-muted-foreground font-medium w-24 shrink-0">Ghi chú:</span>
                 <p className="text-[11px] text-muted-foreground leading-relaxed">
-                  Quyền hạn được cấp bởi Quản trị viên Tối cao (thanlx@hcmute.edu.vn).
+                  Chỉ tài khoản được Quản trị viên Tối cao (<b>thanlx@hcmute.edu.vn</b>) cấp quyền mới nhìn thấy nút &quot;Trang quản trị&quot; và truy cập đúng các phân hệ được giao.
                 </p>
               </div>
             </div>

@@ -64,6 +64,102 @@ export type AdminTab =
   | 'cau_hinh'
   | 'nhat_ky';
 
+export const ALL_ADMIN_TABS: AdminTab[] = [
+  'tong_quan',
+  'ho_so',
+  'to_chuc',
+  'quyet_dinh',
+  'duyet_ho_so',
+  'danh_gia',
+  'bao_cao',
+  'thong_bao',
+  'phan_quyen',
+  'cau_hinh',
+  'nhat_ky',
+];
+
+export const ADMIN_TAB_DEFINITIONS: { id: AdminTab; label: string; desc: string }[] = [
+  { id: 'tong_quan', label: 'Tổng quan', desc: 'Bảng điều khiển số liệu tổng hợp theo phạm vi quản lý' },
+  { id: 'ho_so', label: 'Hồ sơ cán bộ', desc: 'Xem, thêm mới, chỉnh sửa, nhập/xuất Excel danh sách cán bộ' },
+  { id: 'to_chuc', label: 'Tổ chức và chức vụ', desc: 'Quản lý cơ cấu đơn vị và danh mục chức danh' },
+  { id: 'quyet_dinh', label: 'Quyết định nhân sự', desc: 'Ban hành, tra cứu quyết định bổ nhiệm, miễn nhiệm, kiện toàn' },
+  { id: 'duyet_ho_so', label: 'Duyệt hồ sơ', desc: 'Phê duyệt hoặc trả lại yêu cầu cập nhật thông tin lý lịch' },
+  { id: 'danh_gia', label: 'Đánh giá hằng tháng', desc: 'Quản lý kỳ đánh giá, chấm điểm và duyệt xếp loại A/B/C/D' },
+  { id: 'bao_cao', label: 'Báo cáo thống kê', desc: 'Xem và xuất báo cáo đội ngũ, biến động, xếp loại ra Excel' },
+  { id: 'thong_bao', label: 'Thông báo', desc: 'Gửi thông báo nhắc hạn, công văn đến đơn vị và cán bộ' },
+  { id: 'phan_quyen', label: 'Tài khoản và phân quyền', desc: 'Quản lý tài khoản, mật khẩu và cấp quyền Admin' },
+  { id: 'cau_hinh', label: 'Cấu hình hệ thống', desc: 'Thiết lập quy trình duyệt, tiêu chí đánh giá và tệp đính kèm' },
+  { id: 'nhat_ky', label: 'Nhật ký hệ thống', desc: 'Tra cứu lịch sử thao tác và kiểm toán bảo mật' },
+];
+
+export const DEFAULT_TABS_BY_ROLE: Record<UserRole, AdminTab[]> = {
+  admin: ALL_ADMIN_TABS,
+  admin_don_vi: [
+    'tong_quan',
+    'ho_so',
+    'to_chuc',
+    'quyet_dinh',
+    'duyet_ho_so',
+    'danh_gia',
+    'bao_cao',
+    'thong_bao',
+  ],
+  nguoi_duyet: [
+    'tong_quan',
+    'ho_so',
+    'quyet_dinh',
+    'duyet_ho_so',
+    'danh_gia',
+    'bao_cao',
+  ],
+  quan_ly_don_vi: [
+    'tong_quan',
+    'ho_so',
+    'to_chuc',
+    'danh_gia',
+    'bao_cao',
+  ],
+  lanh_dao: [
+    'tong_quan',
+    'ho_so',
+    'to_chuc',
+    'quyet_dinh',
+    'danh_gia',
+    'bao_cao',
+  ],
+  can_bo_ca_nhan: [],
+};
+
+export function isSuperAdminUser(user?: AppUser | null): boolean {
+  if (!user) return false;
+  const email = (user.email || '').trim().toLowerCase();
+  return email === 'thanlx@hcmute.edu.vn' || user.id === 'user_thanlx';
+}
+
+export function computeAllowedAdminTabs(user?: AppUser | null): AdminTab[] {
+  if (!user || user.is_active === false) return [];
+  if (isSuperAdminUser(user)) return ALL_ADMIN_TABS;
+
+  const userRoles: UserRole[] = Array.isArray(user.roles) ? user.roles : ['can_bo_ca_nhan'];
+  const hasAnyManagementRole = userRoles.some((r) => r !== 'can_bo_ca_nhan');
+
+  if (Array.isArray(user.allowed_admin_tabs)) {
+    if (!hasAnyManagementRole && user.allowed_admin_tabs.length === 0) {
+      return [];
+    }
+    return ALL_ADMIN_TABS.filter((t) => user.allowed_admin_tabs!.includes(t));
+  }
+
+  if (!hasAnyManagementRole) return [];
+
+  const tabSet = new Set<AdminTab>();
+  userRoles.forEach((r) => {
+    const defaults = DEFAULT_TABS_BY_ROLE[r] || [];
+    defaults.forEach((t: AdminTab) => tabSet.add(t));
+  });
+  return ALL_ADMIN_TABS.filter((t) => tabSet.has(t));
+}
+
 interface AppContextType {
   // Navigation & User Context
   portalMode: 'user' | 'admin';
@@ -77,6 +173,13 @@ interface AppContextType {
   switchUserRole: (role: UserRole) => void;
   updateUserScope: (scopeId: string, scopeName: string) => void;
   hasPermission: (action: string) => boolean;
+  canAccessAdminPortal: boolean;
+  allowedAdminTabs: AdminTab[];
+  isSuperAdmin: boolean;
+  isGlobalScope: boolean;
+  accessibleUnitIds: string[];
+  allUnits: Unit[];
+  allProfiles: OfficerProfile[];
 
   // Google & Password Authentication & Security
   authUser: any;
@@ -228,7 +331,7 @@ const STORAGE_KEYS = {
 };
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [portalMode, setPortalModeState] = useState<'user' | 'admin'>('admin');
+  const [portalMode, setPortalModeState] = useState<'user' | 'admin'>('user');
   const [userTab, setUserTabState] = useState<UserTab>('trang_chu');
   const [adminTab, setAdminTabState] = useState<AdminTab>('tong_quan');
   const [currentUser, setCurrentUser] = useState<AppUser>(SUPER_ADMIN_USER);
@@ -275,10 +378,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
   const [selectedPeriodId, setSelectedPeriodId] = useState<string>('period_2026_10');
 
-  // Đồng bộ hóa thông tin người dùng Google / Mật khẩu sang AppUser & phân quyền
+  // Đồng bộ hóa thông tin người dùng Google / Mật khẩu sang AppUser & phân quyền nghiêm ngặt
   const syncAuthUserToAppUser = useCallback((user: any, userList: AppUser[], profileList?: OfficerProfile[]) => {
     const email = (user?.email || '').trim().toLowerCase();
-    const isSuper = email === 'thanlx@hcmute.edu.vn' || email === 'lexuanthanspkt@gmail.com';
+    // Chỉ duy nhất tài khoản thanlx@hcmute.edu.vn là Super Admin mặc định tối cao
+    const isSuper = email === 'thanlx@hcmute.edu.vn';
 
     const matchedInUsers = userList.find((u) => u.email.trim().toLowerCase() === email);
     const matchedProfile = (profileList || []).find((p) => p.email?.trim().toLowerCase() === email);
@@ -294,36 +398,66 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         email: user.email || 'thanlx@hcmute.edu.vn',
         avatar_code: 'XT',
         avatar_url: user.user_metadata?.avatar_url || matchedInUsers?.avatar_url,
-        roles: ['admin', 'lanh_dao', 'nguoi_duyet', 'quan_ly_don_vi', 'can_bo_ca_nhan'],
+        roles: ['admin', 'admin_don_vi', 'lanh_dao', 'nguoi_duyet', 'quan_ly_don_vi', 'can_bo_ca_nhan'],
         current_role: 'admin',
         scope_unit_id: 'all',
         scope_unit_name: 'Toàn trường',
+        managed_unit_ids: [],
+        allowed_admin_tabs: ALL_ADMIN_TABS,
         portal_mode: 'admin',
         is_active: true,
       };
       setCurrentUser(superUser);
       setPortalModeState('admin');
+      if (typeof window !== 'undefined') localStorage.setItem(STORAGE_KEYS.PORTAL_MODE, 'admin');
       return superUser;
     }
 
     if (matchedInUsers) {
+      const safeRoles: UserRole[] =
+        Array.isArray(matchedInUsers.roles) && matchedInUsers.roles.length > 0
+          ? matchedInUsers.roles
+          : ['can_bo_ca_nhan'];
       const updated: AppUser = {
         ...matchedInUsers,
+        roles: safeRoles,
+        current_role: safeRoles.includes(matchedInUsers.current_role)
+          ? matchedInUsers.current_role
+          : safeRoles[0],
         profile_id: matchedProfile?.id || matchedInUsers.profile_id,
         student_id: matchedProfile?.student_id || matchedInUsers.student_id,
         avatar_url: user.user_metadata?.avatar_url || matchedInUsers.avatar_url,
-        full_name: matchedInUsers.full_name || matchedProfile?.full_name || user.user_metadata?.full_name || email,
+        full_name:
+          matchedInUsers.full_name ||
+          matchedProfile?.full_name ||
+          user.user_metadata?.full_name ||
+          email,
       };
+      const allowedTabs = computeAllowedAdminTabs(updated);
+      const canAccessAdmin = allowedTabs.length > 0;
+      const targetMode: 'user' | 'admin' = canAccessAdmin ? 'admin' : 'user';
+      updated.portal_mode = targetMode;
+
       setCurrentUser(updated);
-      setPortalModeState(updated.roles.includes('admin') ? 'admin' : 'user');
+      setPortalModeState(targetMode);
+      if (canAccessAdmin) {
+        setAdminTabState((prev) => (allowedTabs.includes(prev) ? prev : allowedTabs[0]));
+      }
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(STORAGE_KEYS.PORTAL_MODE, targetMode);
+      }
       return updated;
     }
 
-    // Tài khoản Google mới đăng nhập vào hệ thống -> Tự động liên kết hồ sơ nếu khớp email
+    // Tài khoản mới đăng nhập (chưa được Super Admin cấp quyền quản trị) -> Chỉ có quyền Cán bộ cá nhân (User)
     const newUser: AppUser = {
       id: `user_${user.id || Date.now()}`,
       profile_id: matchedProfile?.id || `prof_${user.id || Date.now()}`,
-      full_name: matchedProfile?.full_name || user.user_metadata?.full_name || user.email?.split('@')[0] || 'Cán bộ Đoàn - Hội',
+      full_name:
+        matchedProfile?.full_name ||
+        user.user_metadata?.full_name ||
+        user.email?.split('@')[0] ||
+        'Cán bộ Đoàn - Hội',
       student_id: matchedProfile?.student_id || user.user_metadata?.student_id || '',
       username: user.email?.split('@')[0] || 'cb_user',
       password: matchedProfile?.student_id || 'Hcmute@123',
@@ -340,11 +474,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       current_role: 'can_bo_ca_nhan',
       scope_unit_id: matchedProfile?.primary_unit_id || null,
       scope_unit_name: matchedProfile?.roles?.[0]?.unit_name || 'Đoàn trường',
+      managed_unit_ids: [],
+      allowed_admin_tabs: [],
       portal_mode: 'user',
       is_active: true,
     };
     setCurrentUser(newUser);
     setPortalModeState('user');
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(STORAGE_KEYS.PORTAL_MODE, 'user');
+    }
     setUsers((prev) => {
       if (prev.some((u) => u.email.trim().toLowerCase() === email)) return prev;
       return [...prev, newUser];
@@ -356,9 +495,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     if (typeof window === 'undefined') return;
     try {
-      const savedMode = localStorage.getItem(STORAGE_KEYS.PORTAL_MODE);
-      if (savedMode === 'user' || savedMode === 'admin') setPortalModeState(savedMode);
-
       const savedUserTab = localStorage.getItem(STORAGE_KEYS.USER_TAB);
       if (savedUserTab) setUserTabState(savedUserTab as UserTab);
 
@@ -400,21 +536,52 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (savedConfig) setSystemConfig(JSON.parse(savedConfig));
 
       const savedUsers = localStorage.getItem(STORAGE_KEYS.USERS);
+      const isRbacV3Migrated = localStorage.getItem('qncb_rbac_v3_strict') === 'true';
       let loadedUsers: AppUser[] = INITIAL_USERS;
       if (savedUsers) {
         try {
           loadedUsers = JSON.parse(savedUsers);
           if (!loadedUsers.some((u) => u.email.toLowerCase() === 'thanlx@hcmute.edu.vn')) {
             loadedUsers.unshift(SUPER_ADMIN_USER);
-          } else {
-            loadedUsers = loadedUsers.map((u) =>
-              u.email.toLowerCase() === 'thanlx@hcmute.edu.vn' && !u.password
-                ? { ...u, password: SUPER_ADMIN_USER.password }
-                : u
-            );
           }
+          loadedUsers = loadedUsers.map((u) => {
+            const emailLower = (u.email || '').trim().toLowerCase();
+            if (emailLower === 'thanlx@hcmute.edu.vn') {
+              return {
+                ...SUPER_ADMIN_USER,
+                ...u,
+                password: u.password || SUPER_ADMIN_USER.password,
+                roles: SUPER_ADMIN_USER.roles,
+                current_role: 'admin',
+                scope_unit_id: 'all',
+                scope_unit_name: 'Toàn trường',
+                allowed_admin_tabs: ALL_ADMIN_TABS,
+                is_active: true,
+              };
+            }
+            // Làm sạch tài khoản tự động đăng nhập trước đây bị cấp nhầm quyền admin
+            if (!isRbacV3Migrated && emailLower === 'lexuanthanspkt@gmail.com') {
+              return {
+                ...u,
+                roles: ['can_bo_ca_nhan'],
+                current_role: 'can_bo_ca_nhan',
+                allowed_admin_tabs: [],
+                portal_mode: 'user',
+              };
+            }
+            const computedTabs = computeAllowedAdminTabs(u);
+            return {
+              ...u,
+              allowed_admin_tabs: Array.isArray(u.allowed_admin_tabs) ? u.allowed_admin_tabs : computedTabs,
+              portal_mode: computedTabs.length > 0 ? u.portal_mode : 'user',
+            };
+          });
+          localStorage.setItem('qncb_rbac_v3_strict', 'true');
+          localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(loadedUsers));
           setUsers(loadedUsers);
         } catch (e) {}
+      } else {
+        localStorage.setItem('qncb_rbac_v3_strict', 'true');
       }
 
       // Check Supabase Google session
@@ -430,7 +597,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               const mockDev = {
                 email: devEmail,
                 user_metadata: {
-                  full_name: foundUser?.full_name || 'Lê Xuân Thân',
+                  full_name: foundUser?.full_name || devEmail.split('@')[0],
                   avatar_url: foundUser?.avatar_url,
                 },
               };
@@ -454,11 +621,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               const mockDev = {
                 email: devEmail,
                 user_metadata: {
-                  full_name: foundUser?.full_name || 'Lê Xuân Thân',
+                  full_name: foundUser?.full_name || devEmail.split('@')[0],
                   avatar_url: foundUser?.avatar_url,
                 },
               };
               setAuthUser(mockDev);
+              syncAuthUserToAppUser(mockDev, loadedUsers, loadedProfiles);
             } else {
               setAuthUser(null);
             }
@@ -476,7 +644,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const mockDev = {
             email: devEmail,
             user_metadata: {
-              full_name: foundUser?.full_name || 'Lê Xuân Thân',
+              full_name: foundUser?.full_name || devEmail.split('@')[0],
               avatar_url: foundUser?.avatar_url,
             },
           };
@@ -770,50 +938,245 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     syncAuthUserToAppUser(devUser, users, profiles);
   }, [syncAuthUserToAppUser, users, profiles]);
 
+  // Computed RBAC & Unit Scope Properties
+  const isSuperAdmin = useMemo(() => isSuperAdminUser(currentUser), [currentUser]);
+  const allowedAdminTabs = useMemo(() => computeAllowedAdminTabs(currentUser), [currentUser]);
+  const canAccessAdminPortal = allowedAdminTabs.length > 0;
+
+  const isGlobalScope = useMemo(() => {
+    if (isSuperAdmin) return true;
+    const hasCustomUnits = Array.isArray(currentUser.managed_unit_ids) && currentUser.managed_unit_ids.length > 0;
+    const hasSpecificUnit =
+      Boolean(currentUser.scope_unit_id) &&
+      currentUser.scope_unit_id !== 'all' &&
+      currentUser.scope_unit_id !== 'ALL';
+    if (hasCustomUnits || hasSpecificUnit) return false;
+    return currentUser.roles.includes('admin') || currentUser.roles.includes('lanh_dao');
+  }, [isSuperAdmin, currentUser]);
+
+  // Helper: lấy tất cả đơn vị con/cháu của danh sách đơn vị gốc
+  const expandWithDescendantUnits = useCallback(
+    (seedIds: string[]) => {
+      const result = new Set<string>(seedIds.filter(Boolean));
+      let added = true;
+      while (added) {
+        added = false;
+        units.forEach((u) => {
+          if (u.parent_id && result.has(u.parent_id) && !result.has(u.id)) {
+            result.add(u.id);
+            added = true;
+          }
+        });
+      }
+      return Array.from(result);
+    },
+    [units]
+  );
+
+  const accessibleUnitIds = useMemo(() => {
+    if (isGlobalScope) return units.map((u) => u.id);
+    const seeds: string[] = [];
+    if (Array.isArray(currentUser.managed_unit_ids)) {
+      seeds.push(...currentUser.managed_unit_ids);
+    }
+    if (
+      currentUser.scope_unit_id &&
+      currentUser.scope_unit_id !== 'all' &&
+      currentUser.scope_unit_id !== 'ALL' &&
+      currentUser.scope_unit_id !== 'managed_all'
+    ) {
+      seeds.push(currentUser.scope_unit_id);
+    }
+    return expandWithDescendantUnits(seeds);
+  }, [isGlobalScope, units, currentUser.managed_unit_ids, currentUser.scope_unit_id, expandWithDescendantUnits]);
+
+  const activeAdminUnitIds = useMemo<string[] | 'all'>(() => {
+    const scopeId = currentUser.scope_unit_id;
+    if (isGlobalScope) {
+      if (!scopeId || scopeId === 'all' || scopeId === 'ALL') return 'all';
+      return expandWithDescendantUnits([scopeId]);
+    }
+    if (scopeId && scopeId !== 'all' && scopeId !== 'ALL' && scopeId !== 'managed_all') {
+      const targetExpanded = expandWithDescendantUnits([scopeId]);
+      return targetExpanded.filter((id) => accessibleUnitIds.includes(id));
+    }
+    return accessibleUnitIds;
+  }, [isGlobalScope, currentUser.scope_unit_id, accessibleUnitIds, expandWithDescendantUnits]);
+
+  // Đồng bộ currentUser ngay lập tức nếu bảng users được cập nhật phân quyền
+  useEffect(() => {
+    if (!authUser) return;
+    const matched = users.find(
+      (u) =>
+        u.id === currentUser.id ||
+        (u.email && currentUser.email && u.email.trim().toLowerCase() === currentUser.email.trim().toLowerCase())
+    );
+    if (matched) {
+      const prevJson = JSON.stringify({
+        r: currentUser.roles,
+        t: currentUser.allowed_admin_tabs,
+        m: currentUser.managed_unit_ids,
+        a: currentUser.is_active,
+      });
+      const nextJson = JSON.stringify({
+        r: matched.roles,
+        t: matched.allowed_admin_tabs,
+        m: matched.managed_unit_ids,
+        a: matched.is_active,
+      });
+      if (prevJson !== nextJson) {
+        setCurrentUser((prev) => ({
+          ...prev,
+          roles: matched.roles,
+          current_role: matched.roles.includes(prev.current_role) ? prev.current_role : matched.roles[0] || 'can_bo_ca_nhan',
+          allowed_admin_tabs: matched.allowed_admin_tabs,
+          managed_unit_ids: matched.managed_unit_ids,
+          scope_unit_id: matched.scope_unit_id,
+          scope_unit_name: matched.scope_unit_name,
+          is_active: matched.is_active,
+        }));
+      }
+    }
+  }, [users, authUser, currentUser.id, currentUser.email, currentUser.roles, currentUser.allowed_admin_tabs, currentUser.managed_unit_ids, currentUser.is_active]);
+
+  // Chặn truy cập Trang Quản trị nếu tài khoản không có quyền Admin
+  useEffect(() => {
+    if (!canAccessAdminPortal && portalMode === 'admin') {
+      setPortalModeState('user');
+      if (typeof window !== 'undefined') localStorage.setItem(STORAGE_KEYS.PORTAL_MODE, 'user');
+    } else if (portalMode === 'admin' && canAccessAdminPortal && !allowedAdminTabs.includes(adminTab)) {
+      const fallbackTab = allowedAdminTabs[0] || 'tong_quan';
+      setAdminTabState(fallbackTab);
+      if (typeof window !== 'undefined') localStorage.setItem(STORAGE_KEYS.ADMIN_TAB, fallbackTab);
+    }
+  }, [canAccessAdminPortal, portalMode, allowedAdminTabs, adminTab]);
+
+  // Dữ liệu lọc theo phạm vi Đơn vị khi ở chế độ Admin
+  const visibleUnits = useMemo(() => {
+    if (portalMode !== 'admin' || activeAdminUnitIds === 'all') return units;
+    return units.filter((u) => activeAdminUnitIds.includes(u.id));
+  }, [portalMode, activeAdminUnitIds, units]);
+
+  const visibleProfiles = useMemo(() => {
+    if (portalMode !== 'admin' || activeAdminUnitIds === 'all') return profiles;
+    return profiles.filter(
+      (p) =>
+        activeAdminUnitIds.includes(p.primary_unit_id) ||
+        (p.roles || []).some((r) => activeAdminUnitIds.includes(r.unit_id))
+    );
+  }, [portalMode, activeAdminUnitIds, profiles]);
+
+  const visibleDecisions = useMemo(() => {
+    if (portalMode !== 'admin' || activeAdminUnitIds === 'all') return decisions;
+    return decisions.filter(
+      (d) =>
+        (d.unit_id && activeAdminUnitIds.includes(d.unit_id)) ||
+        (d.changes || []).some((c) => activeAdminUnitIds.includes(c.unit_id))
+    );
+  }, [portalMode, activeAdminUnitIds, decisions]);
+
+  const visibleUpdateRequests = useMemo(() => {
+    if (portalMode !== 'admin' || activeAdminUnitIds === 'all') return updateRequests;
+    const allowedProfileIds = new Set(visibleProfiles.map((p) => p.id));
+    return updateRequests.filter((r) => allowedProfileIds.has(r.profile_id));
+  }, [portalMode, activeAdminUnitIds, updateRequests, visibleProfiles]);
+
+  const visibleEvaluations = useMemo(() => {
+    if (portalMode !== 'admin' || activeAdminUnitIds === 'all') return evaluations;
+    const allowedProfileIds = new Set(visibleProfiles.map((p) => p.id));
+    return evaluations.filter(
+      (e) => activeAdminUnitIds.includes(e.unit_id) || allowedProfileIds.has(e.profile_id)
+    );
+  }, [portalMode, activeAdminUnitIds, evaluations, visibleProfiles]);
+
   // Save changes to localStorage
-  const setPortalMode = useCallback((mode: 'user' | 'admin') => {
-    setPortalModeState(mode);
-    if (typeof window !== 'undefined') localStorage.setItem(STORAGE_KEYS.PORTAL_MODE, mode);
-  }, []);
+  const setPortalMode = useCallback(
+    (mode: 'user' | 'admin') => {
+      if (mode === 'admin' && !canAccessAdminPortal) {
+        setPortalModeState('user');
+        if (typeof window !== 'undefined') localStorage.setItem(STORAGE_KEYS.PORTAL_MODE, 'user');
+        return;
+      }
+      setPortalModeState(mode);
+      if (typeof window !== 'undefined') localStorage.setItem(STORAGE_KEYS.PORTAL_MODE, mode);
+    },
+    [canAccessAdminPortal]
+  );
 
   const togglePortalMode = useCallback(() => {
+    if (!canAccessAdminPortal) {
+      setPortalModeState('user');
+      if (typeof window !== 'undefined') localStorage.setItem(STORAGE_KEYS.PORTAL_MODE, 'user');
+      return;
+    }
     setPortalModeState((prev) => {
       const next = prev === 'user' ? 'admin' : 'user';
       if (typeof window !== 'undefined') localStorage.setItem(STORAGE_KEYS.PORTAL_MODE, next);
       return next;
     });
-  }, []);
+  }, [canAccessAdminPortal]);
 
   const setUserTab = useCallback((tab: UserTab) => {
     setUserTabState(tab);
     if (typeof window !== 'undefined') localStorage.setItem(STORAGE_KEYS.USER_TAB, tab);
   }, []);
 
-  const setAdminTab = useCallback((tab: AdminTab) => {
-    setAdminTabState(tab);
-    if (typeof window !== 'undefined') localStorage.setItem(STORAGE_KEYS.ADMIN_TAB, tab);
-  }, []);
+  const setAdminTab = useCallback(
+    (tab: AdminTab) => {
+      if (!allowedAdminTabs.includes(tab)) {
+        const fallback = allowedAdminTabs[0];
+        if (fallback) {
+          setAdminTabState(fallback);
+          if (typeof window !== 'undefined') localStorage.setItem(STORAGE_KEYS.ADMIN_TAB, fallback);
+        }
+        return;
+      }
+      setAdminTabState(tab);
+      if (typeof window !== 'undefined') localStorage.setItem(STORAGE_KEYS.ADMIN_TAB, tab);
+    },
+    [allowedAdminTabs]
+  );
 
-  const switchUserRole = useCallback((role: UserRole) => {
-    setCurrentUser((prev) => ({
-      ...prev,
-      current_role: role,
-    }));
-  }, []);
+  const switchUserRole = useCallback(
+    (role: UserRole) => {
+      // Chỉ cho phép chuyển sang các vai trò mà tài khoản thực sự được cấp
+      if (!isSuperAdmin && !(currentUser.roles || []).includes(role)) {
+        return;
+      }
+      setCurrentUser((prev) => ({
+        ...prev,
+        current_role: role,
+      }));
+    },
+    [isSuperAdmin, currentUser.roles]
+  );
 
-  const updateUserScope = useCallback((scopeId: string, scopeName: string) => {
-    setCurrentUser((prev) => ({
-      ...prev,
-      scope_unit_id: scopeId,
-      scope_unit_name: scopeName,
-    }));
-  }, []);
+  const updateUserScope = useCallback(
+    (scopeId: string, scopeName: string) => {
+      if (!isGlobalScope && (scopeId === 'all' || scopeId === 'ALL')) {
+        return;
+      }
+      if (!isGlobalScope && scopeId !== 'managed_all' && !accessibleUnitIds.includes(scopeId)) {
+        return;
+      }
+      setCurrentUser((prev) => ({
+        ...prev,
+        scope_unit_id: scopeId,
+        scope_unit_name: scopeName,
+      }));
+    },
+    [isGlobalScope, accessibleUnitIds]
+  );
 
   // Check user permission
   const hasPermission = useCallback(
     (action: string) => {
+      if (isSuperAdmin) return true;
       const role = currentUser.current_role;
       if (role === 'admin') return true;
+      if (role === 'admin_don_vi') {
+        return action !== 'manage_system_config' && action !== 'manage_super_admin';
+      }
       if (role === 'lanh_dao') {
         return action.startsWith('view_') || action === 'export_report';
       }
@@ -834,7 +1197,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // can_bo_ca_nhan
       return action === 'view_own' || action === 'submit_update' || action === 'self_evaluate';
     },
-    [currentUser.current_role]
+    [isSuperAdmin, currentUser.current_role]
   );
 
   // Helper: add audit log
@@ -2291,6 +2654,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         switchUserRole,
         updateUserScope,
         hasPermission,
+        canAccessAdminPortal,
+        allowedAdminTabs,
+        isSuperAdmin,
+        isGlobalScope,
+        accessibleUnitIds,
+        allUnits: units,
+        allProfiles: profiles,
 
         // Auth
         authUser,
@@ -2306,13 +2676,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         loginAsSuperAdminDev,
 
         subsystems,
-        units,
+        units: visibleUnits,
         positions,
-        profiles,
-        decisions,
-        updateRequests,
+        profiles: visibleProfiles,
+        decisions: visibleDecisions,
+        updateRequests: visibleUpdateRequests,
         evaluationPeriods,
-        evaluations,
+        evaluations: visibleEvaluations,
         notifications,
         auditLogs,
         systemConfig,
