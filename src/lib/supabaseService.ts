@@ -223,8 +223,8 @@ export async function fetchMembersFromSupabase(): Promise<Member[] | null> {
               try {
                 custom_permissions = JSON.parse(item.slice(8));
               } catch (e) {}
-            } else if (item.startsWith('__role_perms:')) {
-              // Bỏ qua thẻ role perms
+            } else if (item.startsWith('__role_perms:') || item.startsWith('__qncb_cloud_state')) {
+              // Bỏ qua thẻ role perms & cloud state
             } else {
               cleanAlias.push(item);
             }
@@ -986,3 +986,162 @@ export async function signOutSupabase(): Promise<void> {
     console.warn('Lỗi signOut:', e);
   }
 }
+
+// ------------------------------------------------------------------------------
+// 6. ĐỒNG BỘ TOÀN BỘ DỮ LIỆU QUẢN LÝ CÁN BỘ ĐOÀN - HỘI LÊN SUPABASE CLOUD (ĐA THIẾT BỊ)
+// ------------------------------------------------------------------------------
+
+const CLOUD_STATE_MEMBER_ID = '11111111-1111-1111-1111-111111111111';
+const CLOUD_STATE_PREFIX = '__qncb_cloud_state_v2:';
+
+export interface QncbCloudState {
+  updated_at: string;
+  schema_version: number;
+  units: any[];
+  positions: any[];
+  profiles: any[];
+  decisions: any[];
+  updateRequests: any[];
+  evaluationPeriods: any[];
+  evaluations: any[];
+  notifications: any[];
+  auditLogs: any[];
+  systemConfig: any;
+  users: any[];
+}
+
+export async function fetchQncbCloudStateFromSupabase(): Promise<QncbCloudState | null> {
+  if (!supabase || !isSupabaseConfigured) return null;
+  try {
+    const { data, error } = await supabase
+      .from('members')
+      .select('id, alias')
+      .eq('id', CLOUD_STATE_MEMBER_ID)
+      .maybeSingle();
+
+    let row = data;
+    if (!row && !error) {
+      const fallback = await supabase
+        .from('members')
+        .select('id, alias')
+        .eq('email', 'thanlx@hcmute.edu.vn')
+        .limit(1)
+        .maybeSingle();
+      row = fallback.data;
+    }
+
+    if (!row || !Array.isArray(row.alias)) return null;
+
+    for (const item of row.alias) {
+      if (typeof item === 'string' && item.startsWith(CLOUD_STATE_PREFIX)) {
+        try {
+          const parsed = JSON.parse(item.slice(CLOUD_STATE_PREFIX.length));
+          if (parsed && typeof parsed === 'object') {
+            return parsed as QncbCloudState;
+          }
+        } catch (e) {
+          console.warn('Lỗi giải mã QncbCloudState:', e);
+        }
+      }
+    }
+    return null;
+  } catch (err) {
+    console.warn('Lỗi fetchQncbCloudStateFromSupabase:', err);
+    return null;
+  }
+}
+
+export async function saveQncbCloudStateToSupabase(state: QncbCloudState): Promise<boolean> {
+  if (!supabase || !isSupabaseConfigured) return false;
+  try {
+    const { data: existing } = await supabase
+      .from('members')
+      .select('id, alias')
+      .eq('id', CLOUD_STATE_MEMBER_ID)
+      .maybeSingle();
+
+    const encodedState = CLOUD_STATE_PREFIX + JSON.stringify(state);
+
+    if (existing) {
+      const curAliases = Array.isArray(existing.alias) ? existing.alias : [];
+      const preserved = curAliases.filter(
+        (a: any) => typeof a === 'string' && !a.startsWith('__qncb_cloud_state')
+      );
+      preserved.push(encodedState);
+
+      const { error } = await supabase
+        .from('members')
+        .update({ alias: preserved })
+        .eq('id', CLOUD_STATE_MEMBER_ID);
+
+      if (error) {
+        console.warn('Lỗi saveQncbCloudStateToSupabase update:', error.message);
+        return false;
+      }
+      return true;
+    } else {
+      const { error } = await supabase.from('members').upsert(
+        {
+          id: CLOUD_STATE_MEMBER_ID,
+          email: 'thanlx@hcmute.edu.vn',
+          full_name: 'Lê Xuân Thân',
+          role: 'bi_thu',
+          active: true,
+          alias: ['Đ/c Thân', 'Lê Xuân Thân', encodedState],
+        },
+        { onConflict: 'id' }
+      );
+      if (error) {
+        console.warn('Lỗi saveQncbCloudStateToSupabase upsert:', error.message);
+        return false;
+      }
+      return true;
+    }
+  } catch (err) {
+    console.warn('Lỗi saveQncbCloudStateToSupabase:', err);
+    return false;
+  }
+}
+
+export function subscribeToQncbCloudStateRealtime(
+  onCloudStateUpdate: (state: QncbCloudState) => void
+) {
+  if (!supabase || !isSupabaseConfigured) {
+    return () => {};
+  }
+
+  const channel = supabase
+    .channel('qncb-cloud-state-sync')
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'members',
+        filter: `id=eq.${CLOUD_STATE_MEMBER_ID}`,
+      },
+      (payload: any) => {
+        const aliasArr = payload?.new?.alias;
+        if (Array.isArray(aliasArr)) {
+          for (const item of aliasArr) {
+            if (typeof item === 'string' && item.startsWith(CLOUD_STATE_PREFIX)) {
+              try {
+                const parsed = JSON.parse(item.slice(CLOUD_STATE_PREFIX.length));
+                if (parsed && typeof parsed === 'object') {
+                  onCloudStateUpdate(parsed as QncbCloudState);
+                }
+              } catch (e) {}
+            }
+          }
+        }
+      }
+    )
+    .subscribe();
+
+  return () => {
+    if (supabase) {
+      supabase.removeChannel(channel);
+    }
+  };
+}
+

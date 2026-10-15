@@ -85,6 +85,24 @@ export const INITIAL_SUBSYSTEMS: SubsystemInfo[] = [
   },
 ];
 
+// Danh sách 14 Khoa/Viện đào tạo có cả Đoàn cơ sở và Liên chi hội (riêng Đoàn CBVC thuộc Đoàn cơ sở)
+export const FACULTY_SUB_UNITS = [
+  { key: 'ddt', code: 'DDT', shortName: 'Điện - Điện tử' },
+  { key: 'cntt', code: 'CNTT', shortName: 'Công nghệ Thông tin' },
+  { key: 'kt', code: 'KT', shortName: 'Kinh tế' },
+  { key: 'ck', code: 'CK', shortName: 'Cơ khí' },
+  { key: 'ctl', code: 'CTL', shortName: 'Chính trị và Luật' },
+  { key: 'dttt', code: 'DTTT', shortName: 'Đào tạo Tiên tiến' },
+  { key: 'mttt', code: 'MTTT', shortName: 'Mỹ thuật và Truyền thông' },
+  { key: 'hhkhss', code: 'HHKHSS', shortName: 'Hóa học và Khoa học Sự sống' },
+  { key: 'xd', code: 'XD', shortName: 'Xây dựng' },
+  { key: 'gtnl', code: 'GTNL', shortName: 'Giao thông và Năng lượng' },
+  { key: 'nn', code: 'NN', shortName: 'Ngoại ngữ' },
+  { key: 'spkt', code: 'SPKT', shortName: 'Sư phạm kỹ thuật' },
+  { key: 'khud', code: 'KHUD', shortName: 'Khoa học ứng dụng' },
+  { key: 'dtqt', code: 'DTQT', shortName: 'Đào tạo Quốc tế' },
+];
+
 // 2. Cây tổ chức các đơn vị Đoàn - Hội
 export const INITIAL_UNITS: Unit[] = [
   // Cấp Đoàn trường
@@ -109,9 +127,34 @@ export const INITIAL_UNITS: Unit[] = [
     status: 'active',
     subsystem_id: 'P03',
     established_date: '2000-01-01',
-    description: 'Đoàn cơ sở các Khoa/Viện trực thuộc',
+    description: 'Khối Đoàn cơ sở các Khoa/Viện và Đoàn CBVC trực thuộc Đoàn trường',
     member_count: 80,
   },
+  // 15 Phân hệ con trực thuộc Đoàn cơ sở (Đoàn CBVC + 14 Khoa/Viện)
+  {
+    id: 'unit_dcs_cbvc',
+    code: 'DCS-CBVC',
+    name: 'Đoàn CBVC',
+    type: 'doan_co_so',
+    parent_id: 'unit_doan_co_so',
+    status: 'active',
+    subsystem_id: 'P03',
+    established_date: '2000-03-26',
+    description: 'Đoàn cơ sở Cán bộ Viên chức trực thuộc Đoàn trường',
+    member_count: 15,
+  },
+  ...FACULTY_SUB_UNITS.map((fac) => ({
+    id: `unit_dcs_${fac.key}`,
+    code: `DCS-${fac.code}`,
+    name: `Đoàn cơ sở ${fac.shortName}`,
+    type: 'doan_co_so' as const,
+    parent_id: 'unit_doan_co_so',
+    status: 'active' as const,
+    subsystem_id: 'P03' as const,
+    established_date: '2005-03-26',
+    description: `Ban Chấp hành Đoàn cơ sở ${fac.shortName} trực thuộc Đoàn trường`,
+    member_count: 15,
+  })),
   {
     id: 'unit_chi_doan',
     code: 'CHI-DOAN',
@@ -159,9 +202,22 @@ export const INITIAL_UNITS: Unit[] = [
     status: 'active',
     subsystem_id: 'P04',
     established_date: '2005-09-01',
-    description: 'Liên chi hội sinh viên các Khoa',
+    description: 'Khối Liên chi hội Sinh viên các Khoa/Viện trực thuộc Hội Sinh viên trường',
     member_count: 60,
   },
+  // 14 Phân hệ con trực thuộc Liên chi hội
+  ...FACULTY_SUB_UNITS.map((fac) => ({
+    id: `unit_lch_${fac.key}`,
+    code: `LCH-${fac.code}`,
+    name: `Liên chi hội ${fac.shortName}`,
+    type: 'lien_chi_hoi' as const,
+    parent_id: 'unit_lien_chi_hoi',
+    status: 'active' as const,
+    subsystem_id: 'P04' as const,
+    established_date: '2005-09-01',
+    description: `Ban Chấp hành Liên chi hội Sinh viên ${fac.shortName} trực thuộc Hội Sinh viên trường`,
+    member_count: 15,
+  })),
   {
     id: 'unit_clb_truyen_thong',
     code: 'CLB-TT',
@@ -276,12 +332,54 @@ export const INITIAL_POSITIONS: PositionDefinition[] = [
     subsystem_id: 'P03',
   },
 
-  // Chi đoàn
+  // Ban Chấp hành Liên chi hội (P04)
+  {
+    id: 'pos_lch_truong',
+    name: 'Liên chi hội trưởng',
+    group: 'ban_chap_hanh',
+    expected_count: 1,
+    status: 'active',
+    subsystem_id: 'P04',
+  },
+  {
+    id: 'pos_lch_pho',
+    name: 'Liên chi hội phó',
+    group: 'ban_chap_hanh',
+    expected_count: 2,
+    status: 'active',
+    subsystem_id: 'P04',
+  },
+  {
+    id: 'pos_lch_uy_vien',
+    name: 'Ủy viên BCH Liên chi hội',
+    group: 'ban_chap_hanh',
+    expected_count: 'Nhieu_nguoi',
+    status: 'active',
+    subsystem_id: 'P04',
+  },
+
+  // Chi đoàn (P07)
   {
     id: 'pos_cd_bi_thu',
     name: 'Bí thư chi đoàn',
     group: 'chi_doan',
     expected_count: 1,
+    status: 'active',
+    subsystem_id: 'P07',
+  },
+  {
+    id: 'pos_cd_pho_bi_thu',
+    name: 'Phó Bí thư chi đoàn',
+    group: 'chi_doan',
+    expected_count: 1,
+    status: 'active',
+    subsystem_id: 'P07',
+  },
+  {
+    id: 'pos_cd_uy_vien',
+    name: 'Ủy viên BCH chi đoàn',
+    group: 'chi_doan',
+    expected_count: 3,
     status: 'active',
     subsystem_id: 'P07',
   },

@@ -4,7 +4,7 @@
 // APP CONTEXT: QUẢN LÝ DỮ LIỆU ĐỒNG BỘ 2 CHIỀU GIỮA TRANG NGƯỜI DÙNG & QUẢN TRỊ
 // ==============================================================================
 
-import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   SubsystemInfo,
   Unit,
@@ -40,7 +40,14 @@ import {
   SUPER_ADMIN_USER,
 } from '@/lib/mockData';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
-import { signInWithGoogleOAuth, signOutSupabase } from '@/lib/supabaseService';
+import {
+  signInWithGoogleOAuth,
+  signOutSupabase,
+  fetchQncbCloudStateFromSupabase,
+  saveQncbCloudStateToSupabase,
+  subscribeToQncbCloudStateRealtime,
+  QncbCloudState,
+} from '@/lib/supabaseService';
 
 export type UserTab =
   | 'trang_chu'
@@ -328,7 +335,103 @@ const STORAGE_KEYS = {
   UNITS: 'qncb_units_v2',
   POSITIONS: 'qncb_positions_v2',
   USERS: 'qncb_users_v2',
+  LOCAL_UPDATED_AT: 'qncb_local_updated_at_v2',
 };
+
+const CURRENT_SCHEMA_VERSION = 3;
+
+// Đảm bảo luôn có đầy đủ các phân hệ con của Đoàn cơ sở (15 đơn vị) và Liên chi hội (14 đơn vị)
+// nhưng vẫn giữ nguyên toàn bộ các đơn vị đã chỉnh sửa hoặc thêm mới bởi người dùng
+function mergeMandatoryUnits(existingUnits: Unit[] | null | undefined): Unit[] {
+  if (!Array.isArray(existingUnits) || existingUnits.length === 0) {
+    return INITIAL_UNITS;
+  }
+  const byId = new Map<string, Unit>();
+  existingUnits.forEach((u) => {
+    if (u && u.id) byId.set(u.id, u);
+  });
+
+  const result: Unit[] = [];
+  const addedIds = new Set<string>();
+
+  // Giữ thứ tự chuẩn cho các đơn vị gốc và chèn các đơn vị con mới vào đúng vị trí
+  for (const initUnit of INITIAL_UNITS) {
+    const existing = byId.get(initUnit.id);
+    if (existing) {
+      result.push(existing);
+      addedIds.add(existing.id);
+    } else {
+      result.push(initUnit);
+      addedIds.add(initUnit.id);
+    }
+  }
+
+  // Giữ lại toàn bộ các đơn vị do người dùng tự tạo thêm
+  for (const customUnit of existingUnits) {
+    if (customUnit && customUnit.id && !addedIds.has(customUnit.id)) {
+      result.push(customUnit);
+      addedIds.add(customUnit.id);
+    }
+  }
+
+  return result;
+}
+
+function mergeMandatoryPositions(existingPositions: PositionDefinition[] | null | undefined): PositionDefinition[] {
+  if (!Array.isArray(existingPositions) || existingPositions.length === 0) {
+    return INITIAL_POSITIONS;
+  }
+  const byId = new Map<string, PositionDefinition>();
+  existingPositions.forEach((p) => {
+    if (p && p.id) byId.set(p.id, p);
+  });
+
+  const result: PositionDefinition[] = [...existingPositions];
+  for (const initPos of INITIAL_POSITIONS) {
+    if (!byId.has(initPos.id)) {
+      result.push(initPos);
+    }
+  }
+  return result;
+}
+
+function sanitizeLoadedUsers(rawUsers: AppUser[] | null | undefined, isRbacV3Migrated = true): AppUser[] {
+  let list: AppUser[] = Array.isArray(rawUsers) && rawUsers.length > 0 ? [...rawUsers] : [...INITIAL_USERS];
+  if (!list.some((u) => (u.email || '').trim().toLowerCase() === 'thanlx@hcmute.edu.vn')) {
+    list.unshift(SUPER_ADMIN_USER);
+  }
+  return list.map((u) => {
+    const emailLower = (u.email || '').trim().toLowerCase();
+    if (emailLower === 'thanlx@hcmute.edu.vn') {
+      return {
+        ...SUPER_ADMIN_USER,
+        ...u,
+        password: u.password || SUPER_ADMIN_USER.password,
+        roles: SUPER_ADMIN_USER.roles,
+        current_role: 'admin',
+        scope_unit_id: 'all',
+        scope_unit_name: 'Toàn trường',
+        allowed_admin_tabs: ALL_ADMIN_TABS,
+        is_active: true,
+      };
+    }
+    if (!isRbacV3Migrated && emailLower === 'lexuanthanspkt@gmail.com') {
+      return {
+        ...u,
+        roles: ['can_bo_ca_nhan'],
+        current_role: 'can_bo_ca_nhan',
+        allowed_admin_tabs: [],
+        portal_mode: 'user',
+      };
+    }
+    const computedTabs = computeAllowedAdminTabs(u);
+    return {
+      ...u,
+      allowed_admin_tabs: Array.isArray(u.allowed_admin_tabs) ? u.allowed_admin_tabs : computedTabs,
+      portal_mode: computedTabs.length > 0 ? u.portal_mode : 'user',
+    };
+  });
+}
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [portalMode, setPortalModeState] = useState<'user' | 'admin'>('user');
@@ -354,6 +457,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>(INITIAL_AUDIT_LOGS);
   const [systemConfig, setSystemConfig] = useState<SystemConfig>(INITIAL_SYSTEM_CONFIG);
   const [users, setUsers] = useState<AppUser[]>(INITIAL_USERS);
+
+  // Refs to prevent overwriting storage on mount & to sync with Supabase Cloud
+  const isLocalHydratedRef = useRef<boolean>(false);
+  const isCloudHydratedRef = useRef<boolean>(false);
+  const isApplyingCloudStateRef = useRef<boolean>(false);
+  const lastSyncedTimestampRef = useRef<string>('');
+  const cloudSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const usersRef = useRef<AppUser[]>(users);
+  usersRef.current = users;
+  const profilesRef = useRef<OfficerProfile[]>(profiles);
+  profilesRef.current = profiles;
+  const authUserRef = useRef<any>(authUser);
+  authUserRef.current = authUser;
 
   const roles = useMemo(
     () =>
@@ -491,9 +608,88 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return newUser;
   }, []);
 
-  // Load persisted state & Google Auth session on mount
+  // Hàm áp dụng dữ liệu từ Supabase Cloud vào State & LocalStorage
+  const applyCloudStateToLocal = useCallback(
+    (cloud: QncbCloudState) => {
+      isApplyingCloudStateRef.current = true;
+      lastSyncedTimestampRef.current = cloud.updated_at || new Date().toISOString();
+
+      const nextUnits = mergeMandatoryUnits(cloud.units);
+      const nextPositions = mergeMandatoryPositions(cloud.positions);
+      const nextProfiles: OfficerProfile[] =
+        Array.isArray(cloud.profiles) && cloud.profiles.length > 0 ? cloud.profiles : INITIAL_PROFILES;
+      const nextDecisions: PersonnelDecision[] = Array.isArray(cloud.decisions)
+        ? cloud.decisions
+        : INITIAL_DECISIONS;
+      const nextRequests: ProfileUpdateRequest[] = Array.isArray(cloud.updateRequests)
+        ? cloud.updateRequests
+        : INITIAL_UPDATE_REQUESTS;
+      const nextPeriods: EvaluationPeriod[] =
+        Array.isArray(cloud.evaluationPeriods) && cloud.evaluationPeriods.length > 0
+          ? cloud.evaluationPeriods
+          : INITIAL_EVALUATION_PERIODS;
+      const nextEvaluations: MonthlyEvaluation[] = Array.isArray(cloud.evaluations)
+        ? cloud.evaluations
+        : INITIAL_EVALUATIONS;
+      const nextNotifications: NotificationItem[] =
+        Array.isArray(cloud.notifications) && cloud.notifications.length > 0
+          ? cloud.notifications
+          : INITIAL_NOTIFICATIONS;
+      const nextAuditLogs: AuditLog[] = Array.isArray(cloud.auditLogs)
+        ? cloud.auditLogs
+        : INITIAL_AUDIT_LOGS;
+      const nextConfig: SystemConfig =
+        cloud.systemConfig && typeof cloud.systemConfig === 'object'
+          ? cloud.systemConfig
+          : INITIAL_SYSTEM_CONFIG;
+      const nextUsers = sanitizeLoadedUsers(cloud.users, true);
+
+      setUnits(nextUnits);
+      setPositions(nextPositions);
+      setProfiles(nextProfiles);
+      setDecisions(nextDecisions);
+      setUpdateRequests(nextRequests);
+      setEvaluationPeriods(nextPeriods);
+      setEvaluations(nextEvaluations);
+      setNotifications(nextNotifications);
+      setAuditLogs(nextAuditLogs);
+      setSystemConfig(nextConfig);
+      setUsers(nextUsers);
+
+      usersRef.current = nextUsers;
+      profilesRef.current = nextProfiles;
+
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(STORAGE_KEYS.UNITS, JSON.stringify(nextUnits));
+        localStorage.setItem(STORAGE_KEYS.POSITIONS, JSON.stringify(nextPositions));
+        localStorage.setItem(STORAGE_KEYS.PROFILES, JSON.stringify(nextProfiles));
+        localStorage.setItem(STORAGE_KEYS.DECISIONS, JSON.stringify(nextDecisions));
+        localStorage.setItem(STORAGE_KEYS.REQUESTS, JSON.stringify(nextRequests));
+        localStorage.setItem(STORAGE_KEYS.PERIODS, JSON.stringify(nextPeriods));
+        localStorage.setItem(STORAGE_KEYS.EVALUATIONS, JSON.stringify(nextEvaluations));
+        localStorage.setItem(STORAGE_KEYS.NOTIFICATIONS, JSON.stringify(nextNotifications));
+        localStorage.setItem(STORAGE_KEYS.AUDIT_LOGS, JSON.stringify(nextAuditLogs));
+        localStorage.setItem(STORAGE_KEYS.CONFIG, JSON.stringify(nextConfig));
+        localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(nextUsers));
+        localStorage.setItem(STORAGE_KEYS.LOCAL_UPDATED_AT, lastSyncedTimestampRef.current);
+      }
+
+      if (authUserRef.current) {
+        syncAuthUserToAppUser(authUserRef.current, nextUsers, nextProfiles);
+      }
+
+      setTimeout(() => {
+        isApplyingCloudStateRef.current = false;
+      }, 60);
+    },
+    [syncAuthUserToAppUser]
+  );
+
+  // Load persisted state (LocalStorage + Supabase Cloud) & Google Auth session on mount
   useEffect(() => {
     if (typeof window === 'undefined') return;
+    let isMounted = true;
+
     try {
       const savedUserTab = localStorage.getItem(STORAGE_KEYS.USER_TAB);
       if (savedUserTab) setUserTabState(savedUserTab as UserTab);
@@ -505,95 +701,167 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const savedProfiles = localStorage.getItem(STORAGE_KEYS.PROFILES);
       if (savedProfiles) {
         loadedProfiles = JSON.parse(savedProfiles);
-        setProfiles(loadedProfiles);
       }
 
+      let loadedUnits: Unit[] = INITIAL_UNITS;
       const savedUnits = localStorage.getItem(STORAGE_KEYS.UNITS);
-      if (savedUnits) setUnits(JSON.parse(savedUnits));
+      if (savedUnits) {
+        loadedUnits = mergeMandatoryUnits(JSON.parse(savedUnits));
+      }
 
+      let loadedPositions: PositionDefinition[] = INITIAL_POSITIONS;
       const savedPositions = localStorage.getItem(STORAGE_KEYS.POSITIONS);
-      if (savedPositions) setPositions(JSON.parse(savedPositions));
+      if (savedPositions) {
+        loadedPositions = mergeMandatoryPositions(JSON.parse(savedPositions));
+      }
 
+      let loadedDecisions: PersonnelDecision[] = INITIAL_DECISIONS;
       const savedDecisions = localStorage.getItem(STORAGE_KEYS.DECISIONS);
-      if (savedDecisions) setDecisions(JSON.parse(savedDecisions));
+      if (savedDecisions) loadedDecisions = JSON.parse(savedDecisions);
 
+      let loadedRequests: ProfileUpdateRequest[] = INITIAL_UPDATE_REQUESTS;
       const savedRequests = localStorage.getItem(STORAGE_KEYS.REQUESTS);
-      if (savedRequests) setUpdateRequests(JSON.parse(savedRequests));
+      if (savedRequests) loadedRequests = JSON.parse(savedRequests);
 
+      let loadedPeriods: EvaluationPeriod[] = INITIAL_EVALUATION_PERIODS;
       const savedPeriods = localStorage.getItem(STORAGE_KEYS.PERIODS);
-      if (savedPeriods) setEvaluationPeriods(JSON.parse(savedPeriods));
+      if (savedPeriods) loadedPeriods = JSON.parse(savedPeriods);
 
+      let loadedEvaluations: MonthlyEvaluation[] = INITIAL_EVALUATIONS;
       const savedEvaluations = localStorage.getItem(STORAGE_KEYS.EVALUATIONS);
-      if (savedEvaluations) setEvaluations(JSON.parse(savedEvaluations));
+      if (savedEvaluations) loadedEvaluations = JSON.parse(savedEvaluations);
 
+      let loadedNotifications: NotificationItem[] = INITIAL_NOTIFICATIONS;
       const savedNotifications = localStorage.getItem(STORAGE_KEYS.NOTIFICATIONS);
-      if (savedNotifications) setNotifications(JSON.parse(savedNotifications));
+      if (savedNotifications) loadedNotifications = JSON.parse(savedNotifications);
 
+      let loadedAuditLogs: AuditLog[] = INITIAL_AUDIT_LOGS;
       const savedAuditLogs = localStorage.getItem(STORAGE_KEYS.AUDIT_LOGS);
-      if (savedAuditLogs) setAuditLogs(JSON.parse(savedAuditLogs));
+      if (savedAuditLogs) loadedAuditLogs = JSON.parse(savedAuditLogs);
 
+      let loadedConfig: SystemConfig = INITIAL_SYSTEM_CONFIG;
       const savedConfig = localStorage.getItem(STORAGE_KEYS.CONFIG);
-      if (savedConfig) setSystemConfig(JSON.parse(savedConfig));
+      if (savedConfig) loadedConfig = JSON.parse(savedConfig);
 
       const savedUsers = localStorage.getItem(STORAGE_KEYS.USERS);
       const isRbacV3Migrated = localStorage.getItem('qncb_rbac_v3_strict') === 'true';
       let loadedUsers: AppUser[] = INITIAL_USERS;
       if (savedUsers) {
         try {
-          loadedUsers = JSON.parse(savedUsers);
-          if (!loadedUsers.some((u) => u.email.toLowerCase() === 'thanlx@hcmute.edu.vn')) {
-            loadedUsers.unshift(SUPER_ADMIN_USER);
-          }
-          loadedUsers = loadedUsers.map((u) => {
-            const emailLower = (u.email || '').trim().toLowerCase();
-            if (emailLower === 'thanlx@hcmute.edu.vn') {
-              return {
-                ...SUPER_ADMIN_USER,
-                ...u,
-                password: u.password || SUPER_ADMIN_USER.password,
-                roles: SUPER_ADMIN_USER.roles,
-                current_role: 'admin',
-                scope_unit_id: 'all',
-                scope_unit_name: 'Toàn trường',
-                allowed_admin_tabs: ALL_ADMIN_TABS,
-                is_active: true,
+          loadedUsers = sanitizeLoadedUsers(JSON.parse(savedUsers), isRbacV3Migrated);
+        } catch (e) {
+          loadedUsers = INITIAL_USERS;
+        }
+      }
+      localStorage.setItem('qncb_rbac_v3_strict', 'true');
+
+      setUnits(loadedUnits);
+      setPositions(loadedPositions);
+      setProfiles(loadedProfiles);
+      setDecisions(loadedDecisions);
+      setUpdateRequests(loadedRequests);
+      setEvaluationPeriods(loadedPeriods);
+      setEvaluations(loadedEvaluations);
+      setNotifications(loadedNotifications);
+      setAuditLogs(loadedAuditLogs);
+      setSystemConfig(loadedConfig);
+      setUsers(loadedUsers);
+
+      usersRef.current = loadedUsers;
+      profilesRef.current = loadedProfiles;
+      isLocalHydratedRef.current = true;
+
+      // Đồng bộ hai chiều với Supabase Cloud để mọi thiết bị đều có cùng dữ liệu mới nhất
+      const localUpdatedAt = localStorage.getItem(STORAGE_KEYS.LOCAL_UPDATED_AT) || '';
+      const hasLocalEdits = Boolean(
+        savedProfiles || savedUnits || savedDecisions || savedRequests || savedEvaluations || savedUsers
+      );
+
+      if (supabase && isSupabaseConfigured) {
+        fetchQncbCloudStateFromSupabase().then((cloudState) => {
+          if (!isMounted) return;
+          if (cloudState) {
+            const cloudTime = cloudState.updated_at || '';
+            // Nếu thiết bị mới (chưa có localUpdatedAt) hoặc dữ liệu Cloud mới hơn/bằng thiết bị hiện tại -> tải từ Cloud về
+            if (!localUpdatedAt || cloudTime >= localUpdatedAt) {
+              applyCloudStateToLocal(cloudState);
+              // Nếu Cloud chưa có đủ các phân hệ con mới (schema_version < CURRENT_SCHEMA_VERSION), cập nhật lên Cloud
+              if (
+                (cloudState.schema_version || 0) < CURRENT_SCHEMA_VERSION ||
+                (Array.isArray(cloudState.units) && cloudState.units.length < INITIAL_UNITS.length)
+              ) {
+                const upgradedPayload: QncbCloudState = {
+                  ...cloudState,
+                  updated_at: new Date().toISOString(),
+                  schema_version: CURRENT_SCHEMA_VERSION,
+                  units: mergeMandatoryUnits(cloudState.units),
+                  positions: mergeMandatoryPositions(cloudState.positions),
+                  users: sanitizeLoadedUsers(cloudState.users, true),
+                };
+                lastSyncedTimestampRef.current = upgradedPayload.updated_at;
+                saveQncbCloudStateToSupabase(upgradedPayload);
+              }
+            } else {
+              // Thiết bị hiện tại có chỉnh sửa mới hơn Cloud -> đẩy lên Cloud
+              const pushPayload: QncbCloudState = {
+                updated_at: localUpdatedAt || new Date().toISOString(),
+                schema_version: CURRENT_SCHEMA_VERSION,
+                units: loadedUnits,
+                positions: loadedPositions,
+                profiles: loadedProfiles,
+                decisions: loadedDecisions,
+                updateRequests: loadedRequests,
+                evaluationPeriods: loadedPeriods,
+                evaluations: loadedEvaluations,
+                notifications: loadedNotifications,
+                auditLogs: loadedAuditLogs,
+                systemConfig: loadedConfig,
+                users: loadedUsers,
               };
+              lastSyncedTimestampRef.current = pushPayload.updated_at;
+              saveQncbCloudStateToSupabase(pushPayload);
             }
-            // Làm sạch tài khoản tự động đăng nhập trước đây bị cấp nhầm quyền admin
-            if (!isRbacV3Migrated && emailLower === 'lexuanthanspkt@gmail.com') {
-              return {
-                ...u,
-                roles: ['can_bo_ca_nhan'],
-                current_role: 'can_bo_ca_nhan',
-                allowed_admin_tabs: [],
-                portal_mode: 'user',
-              };
-            }
-            const computedTabs = computeAllowedAdminTabs(u);
-            return {
-              ...u,
-              allowed_admin_tabs: Array.isArray(u.allowed_admin_tabs) ? u.allowed_admin_tabs : computedTabs,
-              portal_mode: computedTabs.length > 0 ? u.portal_mode : 'user',
+          } else {
+            // Cloud chưa có bản ghi -> khởi tạo Cloud từ dữ liệu hiện tại
+            const seedPayload: QncbCloudState = {
+              updated_at: hasLocalEdits ? new Date().toISOString() : '2026-10-15T00:00:00.000Z',
+              schema_version: CURRENT_SCHEMA_VERSION,
+              units: loadedUnits,
+              positions: loadedPositions,
+              profiles: loadedProfiles,
+              decisions: loadedDecisions,
+              updateRequests: loadedRequests,
+              evaluationPeriods: loadedPeriods,
+              evaluations: loadedEvaluations,
+              notifications: loadedNotifications,
+              auditLogs: loadedAuditLogs,
+              systemConfig: loadedConfig,
+              users: loadedUsers,
             };
-          });
-          localStorage.setItem('qncb_rbac_v3_strict', 'true');
-          localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(loadedUsers));
-          setUsers(loadedUsers);
-        } catch (e) {}
+            lastSyncedTimestampRef.current = seedPayload.updated_at;
+            localStorage.setItem(STORAGE_KEYS.LOCAL_UPDATED_AT, seedPayload.updated_at);
+            saveQncbCloudStateToSupabase(seedPayload);
+          }
+          isCloudHydratedRef.current = true;
+        });
       } else {
-        localStorage.setItem('qncb_rbac_v3_strict', 'true');
+        isCloudHydratedRef.current = true;
       }
 
       // Check Supabase Google session
       if (supabase && isSupabaseConfigured) {
         supabase.auth.getSession().then(({ data: { session } }) => {
+          if (!isMounted) return;
           if (session?.user) {
             setAuthUser(session.user);
-            syncAuthUserToAppUser(session.user, loadedUsers, loadedProfiles);
+            authUserRef.current = session.user;
+            syncAuthUserToAppUser(session.user, usersRef.current, profilesRef.current);
           } else {
             const devEmail = localStorage.getItem('qncb_dev_session');
             if (devEmail) {
-              const foundUser = loadedUsers.find((u) => u.email.toLowerCase() === devEmail.toLowerCase());
+              const foundUser = usersRef.current.find(
+                (u) => u.email.toLowerCase() === devEmail.toLowerCase()
+              );
               const mockDev = {
                 email: devEmail,
                 user_metadata: {
@@ -602,7 +870,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 },
               };
               setAuthUser(mockDev);
-              syncAuthUserToAppUser(mockDev, loadedUsers, loadedProfiles);
+              authUserRef.current = mockDev;
+              syncAuthUserToAppUser(mockDev, usersRef.current, profilesRef.current);
             }
           }
           setIsAuthLoading(false);
@@ -611,13 +880,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const {
           data: { subscription },
         } = supabase.auth.onAuthStateChange((_event, session) => {
+          if (!isMounted) return;
           if (session?.user) {
             setAuthUser(session.user);
-            syncAuthUserToAppUser(session.user, loadedUsers, loadedProfiles);
+            authUserRef.current = session.user;
+            syncAuthUserToAppUser(session.user, usersRef.current, profilesRef.current);
           } else {
             const devEmail = localStorage.getItem('qncb_dev_session');
             if (devEmail) {
-              const foundUser = loadedUsers.find((u) => u.email.toLowerCase() === devEmail.toLowerCase());
+              const foundUser = usersRef.current.find(
+                (u) => u.email.toLowerCase() === devEmail.toLowerCase()
+              );
               const mockDev = {
                 email: devEmail,
                 user_metadata: {
@@ -626,21 +899,57 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 },
               };
               setAuthUser(mockDev);
-              syncAuthUserToAppUser(mockDev, loadedUsers, loadedProfiles);
+              authUserRef.current = mockDev;
+              syncAuthUserToAppUser(mockDev, usersRef.current, profilesRef.current);
             } else {
               setAuthUser(null);
+              authUserRef.current = null;
             }
           }
           setIsAuthLoading(false);
         });
 
+        // Đăng ký nhận cập nhật Realtime tức thời từ Supabase khi thiết bị khác chỉnh sửa
+        const unsubscribeRealtime = subscribeToQncbCloudStateRealtime((incomingCloud) => {
+          if (!isMounted || !incomingCloud) return;
+          if (
+            incomingCloud.updated_at &&
+            incomingCloud.updated_at !== lastSyncedTimestampRef.current &&
+            incomingCloud.updated_at > (lastSyncedTimestampRef.current || '')
+          ) {
+            applyCloudStateToLocal(incomingCloud);
+          }
+        });
+
+        // Tự động đồng bộ lại khi người dùng chuyển tab/mở lại trình duyệt trên điện thoại hoặc máy tính
+        const handleVisibilitySync = () => {
+          if (document.visibilityState === 'visible' && isCloudHydratedRef.current) {
+            fetchQncbCloudStateFromSupabase().then((latestCloud) => {
+              if (!isMounted || !latestCloud) return;
+              if (
+                latestCloud.updated_at &&
+                latestCloud.updated_at !== lastSyncedTimestampRef.current &&
+                latestCloud.updated_at > (lastSyncedTimestampRef.current || '')
+              ) {
+                applyCloudStateToLocal(latestCloud);
+              }
+            });
+          }
+        };
+        window.addEventListener('visibilitychange', handleVisibilitySync);
+        window.addEventListener('focus', handleVisibilitySync);
+
         return () => {
+          isMounted = false;
           subscription.unsubscribe();
+          unsubscribeRealtime();
+          window.removeEventListener('visibilitychange', handleVisibilitySync);
+          window.removeEventListener('focus', handleVisibilitySync);
         };
       } else {
         const devEmail = localStorage.getItem('qncb_dev_session');
         if (devEmail) {
-          const foundUser = loadedUsers.find((u) => u.email.toLowerCase() === devEmail.toLowerCase());
+          const foundUser = usersRef.current.find((u) => u.email.toLowerCase() === devEmail.toLowerCase());
           const mockDev = {
             email: devEmail,
             user_metadata: {
@@ -649,7 +958,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             },
           };
           setAuthUser(mockDev);
-          syncAuthUserToAppUser(mockDev, loadedUsers, loadedProfiles);
+          authUserRef.current = mockDev;
+          syncAuthUserToAppUser(mockDev, usersRef.current, profilesRef.current);
         }
         setIsAuthLoading(false);
       }
@@ -657,63 +967,67 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       console.warn('Could not parse persisted state:', e);
       setIsAuthLoading(false);
     }
-  }, [syncAuthUserToAppUser]);
+    return () => {
+      isMounted = false;
+    };
+  }, [syncAuthUserToAppUser, applyCloudStateToLocal]);
 
-  // Persist state updates to localStorage
+  // Persist state updates to localStorage & Supabase Cloud whenever any data changes
   useEffect(() => {
-    if (typeof window === 'undefined') return;
-    localStorage.setItem(STORAGE_KEYS.PROFILES, JSON.stringify(profiles));
-  }, [profiles]);
+    if (typeof window === 'undefined' || !isLocalHydratedRef.current) return;
 
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
     localStorage.setItem(STORAGE_KEYS.UNITS, JSON.stringify(units));
-  }, [units]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
     localStorage.setItem(STORAGE_KEYS.POSITIONS, JSON.stringify(positions));
-  }, [positions]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
+    localStorage.setItem(STORAGE_KEYS.PROFILES, JSON.stringify(profiles));
     localStorage.setItem(STORAGE_KEYS.DECISIONS, JSON.stringify(decisions));
-  }, [decisions]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
     localStorage.setItem(STORAGE_KEYS.REQUESTS, JSON.stringify(updateRequests));
-  }, [updateRequests]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
     localStorage.setItem(STORAGE_KEYS.PERIODS, JSON.stringify(evaluationPeriods));
-  }, [evaluationPeriods]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
     localStorage.setItem(STORAGE_KEYS.EVALUATIONS, JSON.stringify(evaluations));
-  }, [evaluations]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
     localStorage.setItem(STORAGE_KEYS.NOTIFICATIONS, JSON.stringify(notifications));
-  }, [notifications]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
     localStorage.setItem(STORAGE_KEYS.AUDIT_LOGS, JSON.stringify(auditLogs));
-  }, [auditLogs]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
     localStorage.setItem(STORAGE_KEYS.CONFIG, JSON.stringify(systemConfig));
-  }, [systemConfig]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
     localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
-  }, [users]);
+
+    // Nếu thay đổi này xuất phát từ thao tác của người dùng (không phải đang nạp từ Cloud về) -> lưu lên Supabase Cloud
+    if (isCloudHydratedRef.current && !isApplyingCloudStateRef.current) {
+      const nowIso = new Date().toISOString();
+      lastSyncedTimestampRef.current = nowIso;
+      localStorage.setItem(STORAGE_KEYS.LOCAL_UPDATED_AT, nowIso);
+
+      if (cloudSaveTimerRef.current) {
+        clearTimeout(cloudSaveTimerRef.current);
+      }
+      cloudSaveTimerRef.current = setTimeout(() => {
+        saveQncbCloudStateToSupabase({
+          updated_at: nowIso,
+          schema_version: CURRENT_SCHEMA_VERSION,
+          units,
+          positions,
+          profiles,
+          decisions,
+          updateRequests,
+          evaluationPeriods,
+          evaluations,
+          notifications,
+          auditLogs,
+          systemConfig,
+          users,
+        });
+      }, 150);
+    }
+  }, [
+    units,
+    positions,
+    profiles,
+    decisions,
+    updateRequests,
+    evaluationPeriods,
+    evaluations,
+    notifications,
+    auditLogs,
+    systemConfig,
+    users,
+  ]);
 
   // Google & Password Auth Actions
   const signInWithGoogle = useCallback(async () => {
@@ -2284,13 +2598,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           String(row.is_party_member || row['Đảng viên'] || '')
             .trim() === '1';
 
-        // Match unit in units
+        // Match unit in units (hỗ trợ khớp cả tên đầy đủ, mã đơn vị, lẫn tên Khoa/Viện rút gọn)
+        const cleanUnitNameLower = unitName.toLowerCase();
         const matchedUnit =
           units.find(
             (u) =>
-              u.name.toLowerCase() === unitName.toLowerCase() ||
-              u.code.toLowerCase() === unitName.toLowerCase()
-          ) || units[0];
+              u.name.toLowerCase() === cleanUnitNameLower ||
+              u.code.toLowerCase() === cleanUnitNameLower
+          ) ||
+          units.find((u) => {
+            const uLower = u.name.toLowerCase();
+            if (subsystemId === 'P04' && u.parent_id === 'unit_lien_chi_hoi') {
+              return uLower.endsWith(cleanUnitNameLower) || uLower.includes(cleanUnitNameLower);
+            }
+            if (subsystemId === 'P03' && u.parent_id === 'unit_doan_co_so') {
+              return uLower.endsWith(cleanUnitNameLower) || uLower.includes(cleanUnitNameLower);
+            }
+            return false;
+          }) ||
+          units.find((u) => u.name.toLowerCase().includes(cleanUnitNameLower)) ||
+          units[0];
 
         // Check if profile already exists
         const existingIdx = nextProfiles.findIndex(
@@ -2474,15 +2801,35 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     [profiles]
   );
 
-  // Statistics separating unique persons vs total role counts (Mục 6)
+  // Statistics separating unique persons vs total role counts (Mục 6) - hỗ trợ đếm gộp cả các phân hệ con trực thuộc
+  const getDescendantUnitIdSet = useCallback(
+    (rootUnitId?: string) => {
+      if (!rootUnitId || rootUnitId === 'all') return null;
+      const set = new Set<string>([rootUnitId]);
+      let added = true;
+      while (added) {
+        added = false;
+        units.forEach((u) => {
+          if (u.parent_id && set.has(u.parent_id) && !set.has(u.id)) {
+            set.add(u.id);
+            added = true;
+          }
+        });
+      }
+      return set;
+    },
+    [units]
+  );
+
   const getUniqueOfficerCount = useCallback(
     (unitId?: string, dateStr?: string) => {
       const targetDate = dateStr || '2026-10-13';
       const uniqueIds = new Set<string>();
+      const validUnitSet = getDescendantUnitIdSet(unitId);
 
       profiles.forEach((p) => {
         const activeRoles = p.roles.filter((r) => {
-          if (unitId && unitId !== 'all' && r.unit_id !== unitId) return false;
+          if (validUnitSet && !validUnitSet.has(r.unit_id)) return false;
           if (r.start_date > targetDate) return false;
           if (r.end_date && r.end_date < targetDate) return false;
           return true;
@@ -2495,17 +2842,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       return uniqueIds.size;
     },
-    [profiles]
+    [profiles, getDescendantUnitIdSet]
   );
 
   const getTotalRoleCount = useCallback(
     (unitId?: string, dateStr?: string) => {
       const targetDate = dateStr || '2026-10-13';
       let total = 0;
+      const validUnitSet = getDescendantUnitIdSet(unitId);
 
       profiles.forEach((p) => {
         const activeRoles = p.roles.filter((r) => {
-          if (unitId && unitId !== 'all' && r.unit_id !== unitId) return false;
+          if (validUnitSet && !validUnitSet.has(r.unit_id)) return false;
           if (r.start_date > targetDate) return false;
           if (r.end_date && r.end_date < targetDate) return false;
           return true;
@@ -2515,7 +2863,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       return total;
     },
-    [profiles]
+    [profiles, getDescendantUnitIdSet]
   );
 
   const resetToDefaultSeed = useCallback(() => {
@@ -2539,6 +2887,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setSelectedDecisionId(null);
     setSelectedRequestId(null);
     setSelectedPeriodId('period_2026_10');
+
+    const nowIso = new Date().toISOString();
+    lastSyncedTimestampRef.current = nowIso;
+    saveQncbCloudStateToSupabase({
+      updated_at: nowIso,
+      schema_version: CURRENT_SCHEMA_VERSION,
+      units: INITIAL_UNITS,
+      positions: INITIAL_POSITIONS,
+      profiles: INITIAL_PROFILES,
+      decisions: INITIAL_DECISIONS,
+      updateRequests: INITIAL_UPDATE_REQUESTS,
+      evaluationPeriods: INITIAL_EVALUATION_PERIODS,
+      evaluations: INITIAL_EVALUATIONS,
+      notifications: INITIAL_NOTIFICATIONS,
+      auditLogs: INITIAL_AUDIT_LOGS,
+      systemConfig: INITIAL_SYSTEM_CONFIG,
+      users: INITIAL_USERS,
+    });
   }, []);
 
   // Run Test Scenarios from Section 11

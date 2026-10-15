@@ -88,6 +88,33 @@ export default function AdminOrganizationView() {
     setTimeout(() => setFeedbackMsg(null), 4000);
   };
 
+  // Tập hợp ID của đơn vị đang chọn và các phân hệ con trực thuộc
+  const selectedAndChildIds = React.useMemo(() => {
+    if (!selectedUnit) return new Set<string>();
+    const set = new Set<string>([selectedUnit.id]);
+    let added = true;
+    while (added) {
+      added = false;
+      units.forEach((u) => {
+        if (u.parent_id && set.has(u.parent_id) && !set.has(u.id)) {
+          set.add(u.id);
+          added = true;
+        }
+      });
+    }
+    return set;
+  }, [selectedUnit, units]);
+
+  const childUnits = React.useMemo(
+    () => units.filter((u) => u.parent_id === selectedUnit?.id),
+    [units, selectedUnit]
+  );
+
+  const parentUnitObj = React.useMemo(
+    () => units.find((u) => u.id === selectedUnit?.parent_id) || null,
+    [units, selectedUnit]
+  );
+
   // Positions belonging to group/unit
   const isDoanFunction = selectedUnit?.type === 'don_vi_chuc_nang';
   const unitPositions = positions.filter((p) => {
@@ -95,22 +122,29 @@ export default function AdminOrganizationView() {
       return false;
     }
     if (p.unit_id === selectedUnit?.id) return true;
+    if (selectedUnit?.subsystem_id && p.subsystem_id === selectedUnit.subsystem_id && !p.unit_id) {
+      return true;
+    }
     if (isDoanFunction) return p.group === 'ban_dieu_hanh';
     if (selectedUnit?.type === 'clb_doi_nhom') return p.group === 'ban_chu_nhiem';
     if (selectedUnit?.type === 'chi_doan') return p.group === 'chi_doan';
     return p.group === 'ban_chap_hanh';
   });
 
-  // Officers belonging to selectedUnit
+  // Officers belonging to selectedUnit (and child sub-units if viewing a parent block)
   const unitOfficers = profiles.flatMap((p) =>
     p.roles
-      .filter((r) => r.unit_id === selectedUnit?.id || r.unit_name === selectedUnit?.name)
+      .filter(
+        (r) =>
+          selectedAndChildIds.has(r.unit_id) ||
+          r.unit_name === selectedUnit?.name
+      )
       .map((role) => ({ profile: p, role }))
   );
 
-  // Decisions belonging to selectedUnit
+  // Decisions belonging to selectedUnit (and child sub-units)
   const unitDecisions = decisions.filter(
-    (d) => d.unit_id === selectedUnit?.id || d.unit_name === selectedUnit?.name
+    (d) => (d.unit_id && selectedAndChildIds.has(d.unit_id)) || d.unit_name === selectedUnit?.name
   );
 
   // Filter units for left tree
@@ -124,6 +158,7 @@ export default function AdminOrganizationView() {
     (u) =>
       u.id === 'unit_doan_truong' ||
       u.parent_id === 'unit_doan_truong' ||
+      u.parent_id === 'unit_doan_co_so' ||
       ['doan_truong', 'doan_co_so', 'don_vi_chuc_nang', 'chi_doan'].includes(u.type)
   );
 
@@ -131,8 +166,15 @@ export default function AdminOrganizationView() {
     (u) =>
       u.id === 'unit_hoi_sinh_vien' ||
       u.parent_id === 'unit_hoi_sinh_vien' ||
+      u.parent_id === 'unit_lien_chi_hoi' ||
       ['hoi_sinh_vien', 'lien_chi_hoi', 'clb_doi_nhom'].includes(u.type)
   );
+
+  const dcsSubUnits = doanUnits.filter((u) => u.parent_id === 'unit_doan_co_so' && u.type === 'doan_co_so');
+  const doanTopUnits = doanUnits.filter((u) => !(u.parent_id === 'unit_doan_co_so' && u.type === 'doan_co_so'));
+
+  const lchSubUnits = hoiUnits.filter((u) => u.parent_id === 'unit_lien_chi_hoi' && u.type === 'lien_chi_hoi');
+  const hoiTopUnits = hoiUnits.filter((u) => !(u.parent_id === 'unit_lien_chi_hoi' && u.type === 'lien_chi_hoi'));
 
   const handleSelectUnitNode = (id: string) => {
     setActiveUnitId(id);
@@ -309,7 +351,7 @@ export default function AdminOrganizationView() {
             </div>
 
             {/* Dynamic Tree nodes */}
-            <div className="space-y-3 text-xs max-h-[520px] overflow-y-auto pr-1">
+            <div className="space-y-3 text-xs max-h-[600px] overflow-y-auto pr-1">
               {/* Khối Đoàn trường */}
               <div>
                 <div className="flex items-center gap-1.5 px-2 py-1 text-[11px] font-black text-primary uppercase tracking-wider">
@@ -317,25 +359,53 @@ export default function AdminOrganizationView() {
                   <Building2 className="h-3.5 w-3.5" />
                   <span>Hệ thống Đoàn Thanh niên ({doanUnits.length})</span>
                 </div>
-                <div className="pl-4 space-y-1 border-l-2 border-border ml-3 mt-1">
-                  {doanUnits.map((u) => (
-                    <button
-                      key={u.id}
-                      onClick={() => handleSelectUnitNode(u.id)}
-                      className={`w-full flex items-center justify-between gap-2 p-2 rounded-xl transition-colors text-left cursor-pointer ${
-                        activeUnitId === u.id
-                          ? 'bg-primary/15 text-primary font-bold shadow-2xs border border-primary/20'
-                          : 'text-foreground hover:bg-muted font-medium'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <Folder className="h-3.5 w-3.5 text-primary shrink-0" />
-                        <span className="truncate">{u.name}</span>
-                      </div>
-                      <span className="text-[10px] font-mono text-muted-foreground shrink-0">
-                        {u.code}
-                      </span>
-                    </button>
+                <div className="pl-3 space-y-1 border-l-2 border-border ml-3 mt-1">
+                  {doanTopUnits.map((u) => (
+                    <div key={u.id} className="space-y-1">
+                      <button
+                        onClick={() => handleSelectUnitNode(u.id)}
+                        className={`w-full flex items-center justify-between gap-2 p-2 rounded-xl transition-colors text-left cursor-pointer ${
+                          activeUnitId === u.id
+                            ? 'bg-primary/15 text-primary font-bold shadow-2xs border border-primary/20'
+                            : 'text-foreground hover:bg-muted font-medium'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <Folder className="h-3.5 w-3.5 text-primary shrink-0" />
+                          <span className="truncate">{u.name}</span>
+                          {u.id === 'unit_doan_co_so' && dcsSubUnits.length > 0 && (
+                            <span className="px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-700 text-[9px] font-bold">
+                              {dcsSubUnits.length} đơn vị
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-[10px] font-mono text-muted-foreground shrink-0">
+                          {u.code}
+                        </span>
+                      </button>
+
+                      {/* 15 Phân hệ con trực thuộc Đoàn cơ sở */}
+                      {u.id === 'unit_doan_co_so' && dcsSubUnits.length > 0 && (
+                        <div className="pl-3 ml-3 border-l-2 border-emerald-500/30 space-y-0.5 py-0.5">
+                          {dcsSubUnits.map((sub) => (
+                            <button
+                              key={sub.id}
+                              onClick={() => handleSelectUnitNode(sub.id)}
+                              className={`w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg transition-colors text-left cursor-pointer ${
+                                activeUnitId === sub.id
+                                  ? 'bg-emerald-500/15 text-emerald-700 font-bold border border-emerald-500/30'
+                                  : 'text-muted-foreground hover:text-foreground hover:bg-muted/70 font-medium'
+                              }`}
+                            >
+                              <span className="truncate text-[11px]">• {sub.name}</span>
+                              <span className="text-[9px] font-mono text-muted-foreground shrink-0">
+                                {sub.code}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   ))}
                 </div>
               </div>
@@ -347,25 +417,53 @@ export default function AdminOrganizationView() {
                   <Building2 className="h-3.5 w-3.5" />
                   <span>Hệ thống Hội Sinh viên ({hoiUnits.length})</span>
                 </div>
-                <div className="pl-4 space-y-1 border-l-2 border-border ml-3 mt-1">
-                  {hoiUnits.map((u) => (
-                    <button
-                      key={u.id}
-                      onClick={() => handleSelectUnitNode(u.id)}
-                      className={`w-full flex items-center justify-between gap-2 p-2 rounded-xl transition-colors text-left cursor-pointer ${
-                        activeUnitId === u.id
-                          ? 'bg-primary/15 text-primary font-bold shadow-2xs border border-primary/20'
-                          : 'text-foreground hover:bg-muted font-medium'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <Folder className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
-                        <span className="truncate">{u.name}</span>
-                      </div>
-                      <span className="text-[10px] font-mono text-muted-foreground shrink-0">
-                        {u.code}
-                      </span>
-                    </button>
+                <div className="pl-3 space-y-1 border-l-2 border-border ml-3 mt-1">
+                  {hoiTopUnits.map((u) => (
+                    <div key={u.id} className="space-y-1">
+                      <button
+                        onClick={() => handleSelectUnitNode(u.id)}
+                        className={`w-full flex items-center justify-between gap-2 p-2 rounded-xl transition-colors text-left cursor-pointer ${
+                          activeUnitId === u.id
+                            ? 'bg-primary/15 text-primary font-bold shadow-2xs border border-primary/20'
+                            : 'text-foreground hover:bg-muted font-medium'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <Folder className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                          <span className="truncate">{u.name}</span>
+                          {u.id === 'unit_lien_chi_hoi' && lchSubUnits.length > 0 && (
+                            <span className="px-1.5 py-0.5 rounded-full bg-purple-500/15 text-purple-700 text-[9px] font-bold">
+                              {lchSubUnits.length} đơn vị
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-[10px] font-mono text-muted-foreground shrink-0">
+                          {u.code}
+                        </span>
+                      </button>
+
+                      {/* 14 Phân hệ con trực thuộc Liên chi hội */}
+                      {u.id === 'unit_lien_chi_hoi' && lchSubUnits.length > 0 && (
+                        <div className="pl-3 ml-3 border-l-2 border-purple-500/30 space-y-0.5 py-0.5">
+                          {lchSubUnits.map((sub) => (
+                            <button
+                              key={sub.id}
+                              onClick={() => handleSelectUnitNode(sub.id)}
+                              className={`w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg transition-colors text-left cursor-pointer ${
+                                activeUnitId === sub.id
+                                  ? 'bg-purple-500/15 text-purple-700 font-bold border border-purple-500/30'
+                                  : 'text-muted-foreground hover:text-foreground hover:bg-muted/70 font-medium'
+                              }`}
+                            >
+                              <span className="truncate text-[11px]">• {sub.name}</span>
+                              <span className="text-[9px] font-mono text-muted-foreground shrink-0">
+                                {sub.code}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   ))}
                 </div>
               </div>
@@ -419,14 +517,18 @@ export default function AdminOrganizationView() {
                     <span>
                       Cấp trên:{' '}
                       <strong className="text-foreground">
-                        {selectedUnit.parent_id === 'unit_hoi_sinh_vien'
-                          ? 'Hội Sinh viên trường'
-                          : 'Đoàn trường'}
+                        {parentUnitObj ? parentUnitObj.name : 'Cấp Trường'}
                       </strong>
                     </span>
                     <span>
                       Nhân sự hiện tại: <strong className="text-primary">{unitOfficers.length}</strong>
                     </span>
+                    {childUnits.length > 0 && (
+                      <span>
+                        Phân hệ con trực thuộc:{' '}
+                        <strong className="text-emerald-600">{childUnits.length} đơn vị</strong>
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>
@@ -507,6 +609,35 @@ export default function AdminOrganizationView() {
                       'Đơn vị trực thuộc hệ thống Đoàn Thanh niên - Hội Sinh viên Trường Đại học Sư phạm Kỹ thuật TP.HCM.'}
                   </p>
                 </div>
+
+                {childUnits.length > 0 && (
+                  <div className="p-4 rounded-xl border border-primary/20 bg-primary/5 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-black text-primary uppercase tracking-wider">
+                        Các phân hệ con trực thuộc {selectedUnit.name} ({childUnits.length})
+                      </span>
+                      <span className="text-[11px] text-muted-foreground">
+                        Bấm vào từng đơn vị để quản lý nhân sự và chức danh riêng
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                      {childUnits.map((cu) => (
+                        <button
+                          key={cu.id}
+                          onClick={() => handleSelectUnitNode(cu.id)}
+                          className="flex items-center justify-between p-2.5 rounded-xl border border-border bg-card hover:border-primary/40 hover:bg-primary/5 transition-all text-left cursor-pointer"
+                        >
+                          <div className="min-w-0">
+                            <p className="font-bold text-foreground truncate text-xs">{cu.name}</p>
+                            <p className="text-[10px] font-mono text-muted-foreground">{cu.code}</p>
+                          </div>
+                          <span className="text-[10px] font-bold text-primary shrink-0 ml-2">Mở →</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 <div className="flex justify-end">
                   <button
                     onClick={openEditUnitModal}
