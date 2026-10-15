@@ -1,15 +1,375 @@
 // ==============================================================================
-// ĐỊNH NGHĨA DỮ LIỆU TYPE CHUẨN - HỆ THỐNG QUẢN LÝ BTV ĐOÀN TRƯỜNG HCMUTE
+// ĐẶC TẢ DỮ LIỆU TYPE CHUẨN - HỆ THỐNG QUẢN LÝ CÁC BỘ ĐOÀN - HỘI (PHIÊN BẢN 1.0)
+// ==============================================================================
+
+// 7 Phân hệ nhân sự theo Mục 1 Đặc tả
+export type SubsystemId =
+  | 'P01' // Ban Chấp hành Đoàn trường
+  | 'P02' // Ủy ban Kiểm tra Đoàn trường
+  | 'P03' // Ban Chấp hành Đoàn cơ sở
+  | 'P04' // Ban Chấp hành Liên chi hội
+  | 'P05' // Đơn vị trực thuộc Đoàn trường (Ban điều hành các đơn vị chức năng)
+  | 'P06' // Đơn vị trực thuộc Hội Sinh viên (Ban chủ nhiệm CLB, Đội, Nhóm)
+  | 'P07'; // Bí thư chi đoàn
+
+export interface SubsystemInfo {
+  id: SubsystemId;
+  code: string;
+  name: string;
+  targetDescription: string;
+  count: number;
+  colorClass: string;
+  iconName: string;
+}
+
+// Đơn vị trong cây tổ chức
+export type UnitType =
+  | 'doan_truong'
+  | 'hoi_sinh_vien'
+  | 'doan_co_so'
+  | 'lien_chi_hoi'
+  | 'don_vi_chuc_nang'
+  | 'clb_doi_nhom'
+  | 'chi_doan';
+
+export interface Unit {
+  id: string;
+  code: string; // VD: CLB-TT, DKS-CNTT, LCH-KT...
+  name: string;
+  type: UnitType;
+  parent_id?: string | null;
+  status: 'active' | 'inactive';
+  subsystem_id: SubsystemId;
+  established_date?: string;
+  description?: string;
+  member_count?: number;
+}
+
+// Chức danh
+export type PositionGroup =
+  | 'ban_chap_hanh'
+  | 'uy_ban_kiem_tra'
+  | 'ban_dieu_hanh' // Dành cho đơn vị chức năng Đoàn trường
+  | 'ban_chu_nhiem' // Dành cho CLB/Đội/Nhóm Hội Sinh viên
+  | 'chi_doan';
+
+export interface PositionDefinition {
+  id: string;
+  name: string; // Chủ nhiệm, Phó chủ nhiệm, Bí thư, Phó Bí thư, UV BCH, Thành viên...
+  group: PositionGroup;
+  expected_count: number | 'Nhieu_nguoi';
+  status: 'active' | 'inactive';
+  subsystem_id?: SubsystemId;
+  unit_id?: string;
+}
+
+// Hồ sơ cán bộ (Thực thể dùng chung - Mục 2)
+export type OfficerType = 'sinh_vien' | 'can_bo_giang_vien';
+export type VerificationStatus = 'verified' | 'pending_update' | 'incomplete';
+
+export interface OfficerProfile {
+  id: string;
+  profile_code: string; // CB-0001
+  full_name: string;
+  officer_type: OfficerType;
+  student_id?: string; // Bắt buộc với SV
+  staff_id?: string; // Với cán bộ - giảng viên
+  date_of_birth: string; // YYYY-MM-DD
+  gender: 'Nam' | 'Nữ';
+  hometown: string; // Quê quán
+  current_residence: string; // Nơi ở hiện nay
+  current_address?: string; // Tên viết khác của current_residence
+  ethnicity: string; // Dân tộc (nhạy cảm)
+  religion: string; // Tôn giáo (nhạy cảm)
+  qualification?: string; // Trình độ chuyên môn
+  major?: string; // Ngành học
+  political_theory?: string; // Trình độ LLCT
+  is_union_member: boolean; // Tình trạng đoàn viên
+  union_join_date?: string; // Ngày vào Đoàn
+  is_party_member: boolean; // Tình trạng đảng viên
+  party_join_date?: string; // Ngày vào Đảng dự bị
+  party_official_date?: string; // Ngày vào Đảng chính thức
+  avatar_url?: string;
+  email: string;
+  phone: string;
+  verification_status: VerificationStatus;
+  primary_subsystem_id: SubsystemId;
+  primary_unit_id: string;
+  roles: RoleAssignment[]; // Một người có thể giữ nhiều chức vụ (kiêm nhiệm)
+  version: number; // Chống xung đột phiên bản khi nhiều quản trị cùng sửa
+  created_at: string;
+  updated_at: string;
+}
+
+// Bản ghi chức vụ đảm nhiệm (Gắn với khoảng thời gian và quyết định)
+export type RoleStatus = 'active' | 'future' | 'ended';
+
+export interface RoleAssignment {
+  id: string;
+  profile_id: string;
+  officer_id?: string; // alias
+  unit_id: string;
+  unit_name: string;
+  subsystem_id: SubsystemId;
+  position_title: string;
+  term: string; // VD: "2025 - 2026", "2026 - 2027"
+  start_date: string; // YYYY-MM-DD
+  end_date?: string | null; // YYYY-MM-DD hoặc null nếu đến nay
+  decision_id?: string;
+  decision_number?: string;
+  status: RoleStatus;
+  is_active?: boolean; // alias
+}
+
+// Quyết định nhân sự (Mục 7)
+export type DecisionType = 'bo_nhiem' | 'thay_the' | 'mien_nhiem' | 'kien_toan';
+export type DecisionStatus = 'draft' | 'pending_approval' | 'approved' | 'rejected';
+
+export interface DecisionChangeLine {
+  id: string;
+  change_type: 'bo_nhiem' | 'thay_the' | 'ket_thuc' | 'mien_nhiem' | 'kien_toan';
+  profile_id: string;
+  profile_name: string;
+  student_id?: string;
+  unit_id: string;
+  unit_name: string;
+  position_title: string;
+  start_date: string;
+  end_date?: string;
+  replaces_profile_id?: string; // Người cũ bị thay thế nếu có
+  replaces_profile_name?: string;
+  replaces_student_id?: string;
+}
+
+export interface PersonnelDecision {
+  id: string;
+  decision_number: string; // VD: "145-QĐ/HSV", "156-QĐ/HSV"
+  decision_type: DecisionType;
+  title: string;
+  issue_date: string; // Ngày ban hành
+  effective_date: string; // Ngày hiệu lực
+  issuing_authority: string; // Hội Sinh viên trường, Đoàn trường...
+  signer_name: string;
+  signer_title: string;
+  unit_id?: string;
+  unit_name?: string;
+  term?: string;
+  file_name?: string;
+  file_size?: string;
+  file_url?: string;
+  notes?: string;
+  status: DecisionStatus;
+  changes: DecisionChangeLine[];
+  created_by: string;
+  created_at: string;
+}
+
+// Yêu cầu cập nhật hồ sơ (Dữ liệu chờ duyệt - Mục 2)
+export type UpdateRequestStatus = 'draft' | 'pending' | 'approved' | 'returned';
+
+export interface ProfileFieldDiff {
+  label: string;
+  field_key: string;
+  current_value: string;
+  proposed_value: string;
+  is_changed: boolean;
+}
+
+export interface ProfileUpdateRequest {
+  id: string; // HS-0012
+  profile_id: string;
+  profile_name: string;
+  student_id: string;
+  avatar_url?: string;
+  unit_name: string;
+  reason: string;
+  diffs: ProfileFieldDiff[];
+  status: UpdateRequestStatus;
+  created_at: string;
+  reviewed_at?: string;
+  reviewer_name?: string;
+  reviewer_comment?: string;
+  version: string; // VD: "v1.2 (12/10/2026)"
+}
+
+// Đánh giá và xếp loại hằng tháng (Mục 8)
+export type EvaluationGrade = 'A' | 'B' | 'C' | 'D';
+export type EvaluationPeriodStatus = 'draft' | 'open' | 'closed' | 'published';
+export type CandidateEvaluationStatus = 'not_submitted' | 'submitted' | 'approved' | 'returned';
+
+export interface EvaluationPeriod {
+  id: string;
+  month_year: string; // "10/2026"
+  month_number: number;
+  year_number: number;
+  title: string;
+  subsystem_ids: SubsystemId[];
+  unit_ids: string[];
+  self_evaluation_deadline: string; // 25/10/2026
+  review_deadline: string;
+  status: EvaluationPeriodStatus;
+  is_published: boolean; // Chỉ khi công bố cán bộ mới thấy mức A, B, C, D
+  total_targets: number;
+  submitted_count: number;
+  approved_count: number;
+  criteria_version: string;
+  created_at: string;
+}
+
+export interface MonthlyEvaluation {
+  id: string;
+  period_id: string;
+  month_year: string;
+  profile_id: string;
+  profile_name: string;
+  student_id: string;
+  role_assignment_id: string;
+  unit_id: string;
+  unit_name: string;
+  position_title: string;
+  task_results: string; // Kết quả thực hiện nhiệm vụ
+  limitations_mitigation: string; // Hạn chế và hướng khắc phục
+  evidence_files: { name: string; size: string; url?: string }[];
+  proposed_grade?: EvaluationGrade | null; // Mức đề xuất từ đơn vị
+  approved_grade?: EvaluationGrade | null; // Mức đã duyệt
+  candidate_comment?: string;
+  unit_comment?: string;
+  admin_comment?: string;
+  status: CandidateEvaluationStatus;
+  submitted_at?: string;
+  reviewed_at?: string;
+}
+
+// Thông báo hệ thống & nghiệp vụ (Mục 10)
+export type NotificationTargetType = 'all' | 'unit' | 'subsystem' | 'individual';
+
+export interface NotificationItem {
+  id: string;
+  title: string;
+  content: string;
+  sender_name: string; // Đoàn trường, Hội Sinh viên...
+  target_type: NotificationTargetType;
+  target_unit_id?: string;
+  target_subsystem_id?: SubsystemId;
+  target_profile_id?: string;
+  role_filter?: string;
+  link_type?: 'danh_gia' | 'ho_so' | 'quyet_dinh' | 'to_chuc';
+  link_id?: string;
+  link_label?: string;
+  category: 'danh_gia' | 'ho_so' | 'quyet_dinh' | 'chung';
+  channel: 'in_app' | 'email';
+  send_time_type: 'immediate' | 'scheduled';
+  scheduled_time?: string;
+  created_at: string;
+  is_read: boolean;
+  read_by_user_ids: string[];
+}
+
+// Nhật ký hoạt động (Audit Logs - Mục 10)
+export type AuditActionType =
+  | 'duyet_ho_so'
+  | 'tra_lai_ho_so'
+  | 'gui_quyet_dinh'
+  | 'duyet_quyet_dinh'
+  | 'xuat_bao_cao'
+  | 'tao_ho_so'
+  | 'sua_ho_so'
+  | 'cong_bo_danh_gia'
+  | 'mo_lai_ky'
+  | 'nhap_excel'
+  | 'doi_mat_khau';
+
+export interface AuditLog {
+  id: string;
+  timestamp: string; // "13/10/2026 09:20"
+  user_id: string;
+  user_name: string;
+  user_mssv?: string;
+  action_type: AuditActionType | string;
+  action?: string;
+  action_label: string;
+  target_id: string;
+  target_name: string;
+  target_type: string;
+  result: 'Thành công' | 'Thất bại' | 'SUCCESS' | 'FAILED';
+  details: string;
+  version_from?: string;
+  version_to?: string;
+  field_changes?: { field_name: string; old_value: string; new_value: string }[];
+  notes?: string;
+  actor_name?: string;
+  actor_code?: string;
+  created_at?: string;
+  description?: string;
+  ip_address?: string;
+}
+
+// Cấu hình hệ thống (Mục 10 & Màn hình 19)
+export interface ApprovalWorkflowConfig {
+  scope_unit_id: string;
+  scope_name: string;
+  approver_title: string;
+  prevent_self_approval: boolean; // Không tự duyệt yêu cầu của mình
+}
+
+export interface EvaluationCriteriaConfig {
+  version: string;
+  status: 'approved' | 'pending';
+  created_date: string;
+  author_name: string;
+  author_mssv: string;
+  rules_a: string;
+  rules_b: string;
+  rules_c: string;
+  rules_d: string;
+}
+
+export interface SystemConfig {
+  profile_approval: ApprovalWorkflowConfig[] | any;
+  decision_approval: ApprovalWorkflowConfig[] | any;
+  evaluation_criteria: EvaluationCriteriaConfig;
+  max_file_size_mb: number;
+  allowed_file_formats: string[];
+  email_notifications_enabled: boolean;
+  prevent_self_approval?: boolean;
+  attachments?: {
+    max_size_mb: number;
+    allowed_extensions: string[];
+  };
+}
+
+// Vai trò người dùng & Phân quyền (Mục 3)
+export type UserRole =
+  | 'can_bo_ca_nhan'
+  | 'quan_ly_don_vi'
+  | 'nguoi_duyet'
+  | 'lanh_dao'
+  | 'admin';
+
+export interface AppUser {
+  id: string;
+  profile_id: string;
+  full_name: string;
+  student_id: string;
+  email: string;
+  avatar_code: string;
+  roles: UserRole[];
+  current_role: UserRole;
+  scope_unit_id?: string | null;
+  scope_unit_name: string;
+  portal_mode: 'user' | 'admin';
+  username?: string;
+  is_active?: boolean;
+}
+
+// ==============================================================================
+// LEGACY TYPES - HỆ THỐNG CÔNG VIỆC BTV (GIỮ LẠI ĐỂ TƯƠNG THÍCH TIẾP TỤC DỰ ÁN)
 // ==============================================================================
 
 export type MemberRole = 'bi_thu' | 'pho_bi_thu' | 'chanh_van_phong' | 'uy_vien';
-
 export type TaskPriority = 'thap' | 'binh_thuong' | 'cao' | 'khan';
-
 export type TaskStatus = 'moi' | 'dang_lam' | 'cho_duyet' | 'pending_review' | 'hoan_thanh' | 'tam_dung' | 'huy';
-
 export type RatingGrade = 'A' | 'B' | 'C' | 'D';
-
 export type ApprovalScope = 'hanh_chinh' | 'chuyen_mon';
 
 export type NotificationKind =
@@ -22,16 +382,16 @@ export type NotificationKind =
   | 'don_doc';
 
 export type PermissionKey =
-  | 'view_all_tasks'            // Xem toàn bộ công việc BTV
-  | 'create_assign_tasks'       // Giao việc & Phân công nhiệm vụ
-  | 'approve_specialized_tasks' // Phê duyệt nhiệm vụ Chuyên môn
-  | 'approve_admin_tasks'       // Phê duyệt nhiệm vụ Hành chính
-  | 'manage_incoming_docs'      // Quản lý Sổ văn bản đến (Tiếp nhận & Chuyển giao)
-  | 'view_confidential_docs'    // Xem công văn & nhiệm vụ Mật - Thường trực
-  | 'send_urgent_remind'        // Phát lệnh Đôn đốc công việc khẩn
-  | 'view_reports_kpi'          // Xem Báo cáo Đánh giá & Xếp loại KPI BTV
-  | 'access_coordinator'        // Truy cập Bảng điều phối BTV
-  | 'access_admin_portal';      // Truy cập Khu vực Quản trị Hệ thống
+  | 'view_all_tasks'
+  | 'create_assign_tasks'
+  | 'approve_specialized_tasks'
+  | 'approve_admin_tasks'
+  | 'manage_incoming_docs'
+  | 'view_confidential_docs'
+  | 'send_urgent_remind'
+  | 'view_reports_kpi'
+  | 'access_coordinator'
+  | 'access_admin_portal';
 
 export type RolePermissionsMap = Record<MemberRole, PermissionKey[]>;
 
@@ -47,7 +407,7 @@ export interface Member {
   email: string;
   full_name: string;
   role: MemberRole;
-  mang_phu_trach?: string; // 'to_chuc' | 'tuyen_giao' | 'phong_trao' | 'kiem_tra' | 'van_phong'
+  mang_phu_trach?: string;
   phone?: string;
   avatar_url?: string;
   active: boolean;
@@ -77,19 +437,19 @@ export interface Campaign {
 
 export interface IncomingDocument {
   id: string;
-  don_vi_gui: string;     // ĐƠN VỊ GỬI ĐẾN (Thành Đoàn, Đảng ủy, Phòng ban...)
-  noi_dung: string;       // NỘI DUNG (Trích yếu)
-  so_ky_hieu?: string;    // SỐ, KÝ HIỆU VB
-  ngay_nhan: string;      // NGÀY NHẬN (YYYY-MM-DD)
-  ngay_chuyen_xu_ly?: string; // NGÀY CHUYỂN XỬ LÝ
-  nguoi_nhan_xu_ly?: string;  // NGƯỜI NHẬN XỬ LÝ (hoặc 'Xin ý kiến BTV')
-  thoi_han_xu_ly?: string | null; // THỜI HẠN XỬ LÝ
-  ghi_chu?: string;       // GHI CHÚ
+  don_vi_gui: string;
+  noi_dung: string;
+  so_ky_hieu?: string;
+  ngay_nhan: string;
+  ngay_chuyen_xu_ly?: string;
+  nguoi_nhan_xu_ly?: string;
+  thoi_han_xu_ly?: string | null;
+  ghi_chu?: string;
   file_path?: string;
-  file_url?: string;      // Đường dẫn file PDF scan (Local Blob hoặc Supabase URL)
-  file_name?: string;     // Tên file gốc (VD: 262-TB-TDTN.pdf)
-  file_size?: number;     // Dung lượng byte
-  access_level?: 'cong_khai' | 'thuong_truc'; // Phân loại độ mật
+  file_url?: string;
+  file_name?: string;
+  file_size?: number;
+  access_level?: 'cong_khai' | 'thuong_truc';
   created_by?: string;
   created_at?: string;
 }
@@ -100,11 +460,11 @@ export interface Task {
   source_document_id?: string | null;
   title: string;
   description?: string;
-  owner_id: string;       // Đúng 1 người chịu trách nhiệm chính
+  owner_id: string;
   created_by: string;
   priority: TaskPriority;
   status: TaskStatus;
-  approval_scope: ApprovalScope; // 'hanh_chinh' (Chánh VP duyệt được) | 'chuyen_mon' (chỉ Bí thư/Phó BT duyệt)
+  approval_scope: ApprovalScope;
   due_at?: string | null;
   started_at?: string | null;
   submitted_at?: string | null;
@@ -112,29 +472,22 @@ export interface Task {
   approved_by?: string | null;
   recur_rule?: string | null;
   recur_parent_id?: string | null;
-
-  // Workflow nộp & duyệt 2 bước + KPI
   submission_note?: string;
   submission_links?: string[];
   submission_files?: string[];
   review_feedback?: string;
   rating_grade?: RatingGrade;
-  rating_score?: number; // 1.0 - 10.0
+  rating_score?: number;
   rated_by?: string;
   rated_at?: string;
-
   created_at: string;
   updated_at: string;
-
-  // Thuộc tính mở rộng để render
   owner?: Member;
   collaborator_ids?: string[];
   collaborators?: Member[];
   campaign?: Campaign;
   source_document?: IncomingDocument;
   comments_count?: number;
-
-  // Phân loại độ mật & Liên kết văn bản & Bàn giao
   access_level?: 'cong_khai' | 'thuong_truc';
   inherited_doc_file_url?: string;
   inherited_doc_file_name?: string;
@@ -184,10 +537,10 @@ export interface WeeklyCheckin {
   week_number: number;
   year: number;
   mood: CheckinMood;
-  workload_rating: number; // 1 to 5
-  workload_score?: number; // alias
+  workload_rating: number;
+  workload_score?: number;
   message?: string;
-  note?: string; // alias
+  note?: string;
   is_anonymous: boolean;
   created_at: string;
   member?: Member;
@@ -228,7 +581,7 @@ export interface ChatMessage {
   member_id: string;
   body: string;
   reply_to?: string | null;
-  mentions?: string[]; // Danh sách member_id được tag @
+  mentions?: string[];
   rich_card?: ChatRichCard;
   created_at: string;
   member?: Member;
@@ -252,3 +605,4 @@ export interface ActivityLog {
   created_at: string;
   member?: Member;
 }
+

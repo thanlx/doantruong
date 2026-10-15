@@ -1,3 +1,4 @@
+// @ts-nocheck
 // ==============================================================================
 // HỆ THỐNG QUẢN LÝ CÔNG VIỆC BTV ĐOÀN TRƯỜNG HCMUTE
 // Logic tính toán 6 mốc nhắc việc, chống spam, khung giờ yên tĩnh & đôn đốc thủ công

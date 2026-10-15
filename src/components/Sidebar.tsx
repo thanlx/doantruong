@@ -1,183 +1,187 @@
 'use client';
 
 // ==============================================================================
-// SIDEBAR: THANH ĐIỀU HƯỚNG CHUẨN HCMUTE DESIGN SYSTEM (OKLCH, BORDER-BORDER)
+// SIDEBAR CHÍNH: MENU ĐIỀU HƯỚNG THEO CHUẨN DESIGN SYSTEM ĐOÀN - HỘI
 // ==============================================================================
 
 import React from 'react';
-import { useApp } from '@/context/AppContext';
-import DoanLogo from './DoanLogo';
+import { useApp, UserTab, AdminTab } from '@/context/AppContext';
 import {
   Home,
-  CheckSquare,
-  UserCheck,
-  Calendar,
-  FolderGit2,
-  FileText,
-  Compass,
-  MessageSquare,
-  Users,
-  BarChart3,
-  Smartphone,
+  User,
+  GitFork,
+  Award,
+  History,
+  Bell,
   Settings,
-  Sparkles,
+  LayoutDashboard,
+  Users,
+  Network,
+  FileText,
+  CheckSquare,
+  BarChart3,
+  PieChart,
   ShieldAlert,
-  Palette,
-  LogOut,
+  Sliders,
+  FileClock,
+  Sparkles,
 } from 'lucide-react';
 
-export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
-  const { activeTab, setActiveTab, tasks, currentMember, logout, hasPermission } = useApp();
+interface SidebarProps {
+  onItemClick?: () => void;
+  onNavigate?: () => void;
+}
 
-  const overdueCount = tasks.filter(
-    (t) => t.status !== 'hoan_thanh' && t.status !== 'huy' && t.due_at && new Date(t.due_at) < new Date()
-  ).length;
+export default function Sidebar({ onItemClick, onNavigate }: SidebarProps) {
+  const handleNav = () => {
+    onItemClick?.();
+    onNavigate?.();
+  };
+  const {
+    portalMode,
+    userTab,
+    setUserTab,
+    adminTab,
+    setAdminTab,
+    notifications,
+    updateRequests,
+  } = useApp();
 
-  const waitingApprovalCount = tasks.filter((t) => t.status === 'cho_duyet').length;
+  const unreadNotifications = notifications.filter((n) => !n.is_read).length;
+  const pendingRequestsCount = updateRequests.filter((r) => r.status === 'pending').length;
 
-  const canAccessAdmin = hasPermission('access_admin_portal');
-  const canAccessCoordinator = hasPermission('access_coordinator');
-  const canViewReports = hasPermission('view_reports_kpi');
+  const userMenuItems: { id: UserTab; label: string; icon: React.ReactNode; badge?: number }[] = [
+    { id: 'trang_chu', label: 'Trang chủ', icon: <Home className="h-4.5 w-4.5" /> },
+    { id: 'ho_so', label: 'Hồ sơ của tôi', icon: <User className="h-4.5 w-4.5" /> },
+    { id: 'to_chuc', label: 'Tổ chức và cán bộ', icon: <GitFork className="h-4.5 w-4.5" /> },
+    { id: 'danh_gia', label: 'Đánh giá của tôi', icon: <Award className="h-4.5 w-4.5" /> },
+    { id: 'quyet_dinh', label: 'Quyết định và lịch sử', icon: <History className="h-4.5 w-4.5" /> },
+    {
+      id: 'thong_bao',
+      label: 'Thông báo',
+      icon: <Bell className="h-4.5 w-4.5" />,
+      badge: unreadNotifications > 0 ? unreadNotifications : undefined,
+    },
+    { id: 'tai_khoan', label: 'Tài khoản', icon: <Settings className="h-4.5 w-4.5" /> },
+  ];
 
-  const navItems = [
-    { id: 'trang_chu', label: 'Trang chủ', icon: Home },
-    { id: 'cong_viec', label: 'Công việc', icon: CheckSquare },
-    { id: 'viec_cua_toi', label: 'Việc của tôi', icon: UserCheck },
-    { id: 'lich', label: 'Lịch làm việc', icon: Calendar },
-    { id: 'du_an', label: 'Dự án / Mảng việc', icon: FolderGit2 },
-    { id: 'van_ban_den', label: 'Sổ văn bản đến', icon: FileText },
-    ...(canAccessCoordinator
-      ? [
-          {
-            id: 'dieu_phoi',
-            label: 'Bảng điều phối',
-            icon: Compass,
-            badge: overdueCount + waitingApprovalCount > 0 ? overdueCount + waitingApprovalCount : undefined,
-            badgeColor: 'bg-destructive text-destructive-foreground',
-          },
-        ]
-      : []),
-    { id: 'chat', label: 'Chat nhóm BTV', icon: MessageSquare },
-    { id: 'thanh_vien', label: 'Thành viên', icon: Users },
-    ...(canAccessAdmin
-      ? [
-          {
-            id: 'admin',
-            label: 'Quản trị Admin',
-            icon: ShieldAlert,
-            badge: 'Admin',
-            badgeColor: 'bg-destructive text-destructive-foreground',
-          },
-        ]
-      : []),
-    ...(canViewReports
-      ? [
-          { id: 'bao_cao', label: 'Báo cáo & Thống kê', icon: BarChart3 },
-        ]
-      : []),
-    { id: 'huong_dan_ios', label: 'Cài đặt iOS (PWA)', icon: Smartphone },
-    { id: 'thiet_ke', label: 'Hệ thống thiết kế', icon: Palette },
-    { id: 'cai_dat', label: 'Cài đặt & Tài khoản', icon: Settings },
+  const adminMenuItems: { id: AdminTab; label: string; icon: React.ReactNode; badge?: number }[] = [
+    { id: 'tong_quan', label: 'Tổng quan', icon: <LayoutDashboard className="h-4.5 w-4.5" /> },
+    { id: 'ho_so', label: 'Hồ sơ cán bộ', icon: <Users className="h-4.5 w-4.5" /> },
+    { id: 'to_chuc', label: 'Tổ chức và chức vụ', icon: <Network className="h-4.5 w-4.5" /> },
+    { id: 'quyet_dinh', label: 'Quyết định nhân sự', icon: <FileText className="h-4.5 w-4.5" /> },
+    {
+      id: 'duyet_ho_so',
+      label: 'Duyệt hồ sơ',
+      icon: <CheckSquare className="h-4.5 w-4.5" />,
+      badge: pendingRequestsCount > 0 ? pendingRequestsCount : undefined,
+    },
+    { id: 'danh_gia', label: 'Đánh giá hằng tháng', icon: <BarChart3 className="h-4.5 w-4.5" /> },
+    { id: 'bao_cao', label: 'Báo cáo', icon: <PieChart className="h-4.5 w-4.5" /> },
+    { id: 'thong_bao', label: 'Thông báo', icon: <Bell className="h-4.5 w-4.5" /> },
+    { id: 'phan_quyen', label: 'Tài khoản và phân quyền', icon: <ShieldAlert className="h-4.5 w-4.5" /> },
+    { id: 'cau_hinh', label: 'Cấu hình', icon: <Sliders className="h-4.5 w-4.5" /> },
+    { id: 'nhat_ky', label: 'Nhật ký', icon: <FileClock className="h-4.5 w-4.5" /> },
   ];
 
   return (
-    <aside className="app-sidebar w-60 text-white flex flex-col shrink-0 select-none">
-      {/* Header Logo Đoàn trường HCMUTE */}
-      <div className="p-4 border-b border-white/10 flex items-center gap-3">
-        <DoanLogo size={40} />
-        <div className="flex flex-col">
-          <span className="text-[11px] font-black uppercase tracking-wider text-amber-300 leading-tight">
-            ĐOÀN THANH NIÊN
-          </span>
-          <span className="text-[11px] font-extrabold text-white leading-tight">
-            CỘNG SẢN HỒ CHÍ MINH
-          </span>
-          <span className="text-[9px] font-semibold text-blue-200 mt-0.5">
-            HCMUTE • BTV Đoàn trường
-          </span>
+    <aside className="w-64 flex flex-col h-full bg-[#005BAA] text-white shadow-md select-none shrink-0">
+      {/* BRAND HEADER */}
+      <div className="p-5 border-b border-white/10">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="h-8 w-8 rounded-lg bg-white/15 flex items-center justify-center font-black text-sm tracking-wider text-white shadow-2xs">
+              ĐH
+            </div>
+            <div>
+              <h1 className="text-base font-black tracking-tight leading-none text-white">ĐOÀN – HỘI</h1>
+              <p className="text-[11px] text-white/70 font-medium mt-0.5">Quản lý cán bộ</p>
+            </div>
+          </div>
+
+          {portalMode === 'admin' && (
+            <span className="px-2 py-0.5 rounded-md bg-white/20 text-[10px] font-extrabold uppercase tracking-wider text-white border border-white/30">
+              Admin
+            </span>
+          )}
         </div>
       </div>
 
-      {/* Danh sách Menu */}
-      <nav aria-label="Điều hướng chính" className="flex-1 overflow-y-auto px-3 py-4 space-y-1 scrollbar-thin">
-        {navItems.map((item) => {
-          const Icon = item.icon;
-          const isActive = activeTab === item.id;
-
-          return (
-            <button
-              key={item.id}
-              aria-current={isActive ? 'page' : undefined}
-              onClick={() => { setActiveTab(item.id); onNavigate?.(); }}
-              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm transition-all duration-150 relative group ${
-                isActive
-                  ? 'bg-[#0B5CFF] text-white font-bold shadow-md shadow-blue-900/50'
-                  : 'text-blue-100/90 hover:text-white hover:bg-white/10 font-medium'
-              }`}
-            >
-              <Icon
-                className={`w-4 h-4 transition-transform group-hover:scale-110 ${
-                  isActive ? 'text-white' : 'text-blue-200 group-hover:text-white'
-                }`}
-              />
-              <span className="flex-1 text-left truncate">{item.label}</span>
-
-              {item.badge && (
-                <span
-                  className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
-                    item.badgeColor || 'bg-white/20 text-white'
+      {/* NAV ITEMS */}
+      <nav className="flex-1 overflow-y-auto p-3 space-y-1 scrollbar-thin">
+        {portalMode === 'user' ? (
+          <>
+            <div className="px-3 py-1.5 text-[10px] font-bold text-white/50 uppercase tracking-wider">
+              Cán bộ cá nhân
+            </div>
+            {userMenuItems.map((item) => {
+              const isActive = userTab === item.id;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => {
+                    setUserTab(item.id);
+                    handleNav();
+                  }}
+                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                    isActive
+                      ? 'bg-white/20 text-white shadow-sm font-bold border border-white/20'
+                      : 'text-white/80 hover:bg-white/10 hover:text-white'
                   }`}
                 >
-                  {item.badge}
-                </span>
-              )}
-            </button>
-          );
-        })}
-
-        <button
-          onClick={logout}
-          className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs transition-all text-blue-200 hover:text-white hover:bg-white/10 font-medium group cursor-pointer mt-2"
-        >
-          <LogOut className="w-4 h-4 text-blue-300 group-hover:text-red-300 transition-colors" />
-          <span className="flex-1 text-left truncate">Đăng xuất BTV</span>
-        </button>
+                  <div className="flex items-center gap-3">
+                    <span className={isActive ? 'text-white' : 'text-white/70'}>{item.icon}</span>
+                    <span>{item.label}</span>
+                  </div>
+                  {item.badge !== undefined && (
+                    <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-bold text-destructive-foreground shadow-xs">
+                      {item.badge}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </>
+        ) : (
+          <>
+            <div className="px-3 py-1.5 text-[10px] font-bold text-white/50 uppercase tracking-wider">
+              Quản trị hệ thống
+            </div>
+            {adminMenuItems.map((item) => {
+              const isActive = adminTab === item.id;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => {
+                    setAdminTab(item.id);
+                    handleNav();
+                  }}
+                  className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                    isActive
+                      ? 'bg-white/20 text-white shadow-sm font-bold border border-white/20'
+                      : 'text-white/80 hover:bg-white/10 hover:text-white'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <span className={isActive ? 'text-white' : 'text-white/70'}>{item.icon}</span>
+                    <span>{item.label}</span>
+                  </div>
+                  {item.badge !== undefined && (
+                    <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-bold text-destructive-foreground shadow-xs">
+                      {item.badge}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </>
+        )}
       </nav>
 
-      {/* Thẻ phương châm ở chân Sidebar (Khớp hình 02-dashboard-overview.png) */}
-      <div className="p-3.5 m-3 rounded-2xl bg-gradient-to-br from-[#0B3A8E] to-[#07245B] border border-blue-400/25 text-white relative overflow-hidden shadow-lg">
-        <div className="absolute -top-6 -right-6 w-20 h-20 bg-blue-400/10 rounded-full blur-xl pointer-events-none" />
-        <div className="relative z-10 flex items-start justify-between">
-          <div>
-            <h4 className="text-xs font-black tracking-tight text-white leading-tight">
-              Thanh niên
-            </h4>
-            <p className="text-[12px] font-extrabold text-blue-200 leading-snug mt-0.5">
-              Làm việc tốt hơn
-            </p>
-            <span className="text-[11px] text-blue-300/90 italic font-semibold">Mỗi ngày</span>
-          </div>
-          <div className="w-8 h-8 rounded-xl bg-white/10 flex items-center justify-center text-blue-200 shadow-inner">
-            <svg
-              className="w-4 h-4 transform -rotate-45"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2.5}
-                d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"
-              />
-            </svg>
-          </div>
-        </div>
-
-        <div className="mt-2.5 pt-2 border-t border-white/15 flex items-center justify-between text-[10px] text-blue-200">
-          <span>BTV Khóa 2024 - 2027</span>
-          <span className="bg-white/20 px-1.5 py-0.5 rounded font-bold text-white">HCMUTE</span>
-        </div>
+      {/* FOOTER */}
+      <div className="p-4 border-t border-white/10 text-center">
+        <p className="text-[10px] text-white/60 font-medium">Phiên bản 1.0 | Ngày 13/10/2026</p>
+        <p className="text-[9px] text-white/40 mt-0.5">Đoàn trường – Hội Sinh viên</p>
       </div>
     </aside>
   );

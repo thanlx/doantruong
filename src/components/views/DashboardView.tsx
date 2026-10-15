@@ -1,547 +1,387 @@
 'use client';
 
 // ==============================================================================
-// DASHBOARD VIEW: TRANG CHỦ CHUẨN HCMUTE DESIGN SYSTEM (QUICK ACTIONS & PUSH NOTIF)
+// TRANG CHỦ CÁ NHÂN (USER DASHBOARD - SCREEN 4 MOCKUP)
 // ==============================================================================
 
-import React, { useState } from 'react';
+import React from 'react';
 import { useApp } from '@/context/AppContext';
 import {
-  Users,
-  ClipboardList,
-  AlertCircle,
-  Target,
-  ArrowRight,
-  Clock,
-  CheckCircle2,
-  Circle,
-  Sparkles,
-  Plus,
-  PlusCircle,
-  FilePlus,
-  FolderPlus,
+  FileText,
+  Calendar,
   Bell,
-  Trash2,
+  CheckCircle2,
+  Users,
+  Clock,
+  ArrowRight,
+  UserCheck,
+  ChevronRight,
+  Edit,
+  ExternalLink,
 } from 'lucide-react';
-import { format } from 'date-fns';
-import { requestNotificationPermission, getNotificationPermissionState, sendMobileNotification } from '@/lib/pushNotifications';
-import EventCountdown from '@/components/EventCountdown';
-import DashboardCalendar from '@/components/DashboardCalendar';
-import AvatarWithFallback from '@/components/AvatarWithFallback';
-import type { Task } from '@/types';
 
 export default function DashboardView() {
   const {
-    currentMember,
-    members,
-    tasks,
-    campaigns,
+    currentUser,
+    profiles,
+    updateRequests,
+    evaluationPeriods,
+    evaluations,
     notifications,
-    setActiveTab,
-    setSelectedTaskId,
-    updateTaskStatus,
-    setIsCreateTaskModalOpen,
-    setIsCreateDocModalOpen,
-    setIsCreateCampaignModalOpen,
-    clearDummyData,
+    setUserTab,
+    setSelectedRequestId,
   } = useApp();
 
-  const [notifState, setNotifState] = useState<string>(getNotificationPermissionState());
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  // Find user's profile
+  const profile = profiles.find((p) => p.id === currentUser.profile_id) || profiles[0];
 
-  const showToast = (msg: string) => {
-    setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 3500);
-  };
-
-  const now = new Date();
-
-  // Đếm các số liệu thống kê thực tế từ dữ liệu
-  const inProgressTasks = tasks.filter((t) => t.status === 'dang_lam' || t.status === 'moi');
-  const overdueTasks = tasks.filter(
-    (t) => t.status !== 'hoan_thanh' && t.status !== 'huy' && t.due_at && new Date(t.due_at) < now
+  // Stats
+  const pendingRequests = updateRequests.filter(
+    (r) => r.profile_id === profile.id && r.status === 'pending'
   );
+  const unreadNotifs = notifications.filter((n) => !n.is_read);
 
-  // Đếm số lượng task ảo
-  const dummyTasksCount = tasks.filter(
-    (t) => t.id.startsWith('a1') || t.id.startsWith('a2') || t.id.startsWith('a3') ||
-           t.id.startsWith('a4') || t.id.startsWith('a5') || t.id.startsWith('a6')
-  ).length;
-
-  // Danh sách công việc gần đây
-  const recentTasks = [...tasks].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 6);
-  const upcomingTasks = tasks.filter(task => task.status !== 'hoan_thanh' && task.status !== 'huy')
-    .sort((a, b) => (a.due_at ? new Date(a.due_at).getTime() : Infinity) - (b.due_at ? new Date(b.due_at).getTime() : Infinity));
-
-  // Xử lý bật thông báo điện thoại
-  const handleEnableNotification = async () => {
-    const granted = await requestNotificationPermission();
-    if (granted) {
-      setNotifState('granted');
-      showToast('Đã bật thông báo rung chuông thành công trên thiết bị!');
-    } else {
-      showToast('Vui lòng cấp quyền thông báo trong cài đặt trình duyệt.');
-    }
-  };
-
-  // Xử lý xóa danh sách ảo nhanh
-  const handleClearDummy = async () => {
-    if (confirm('Đồng chí có chắc muốn xóa sạch toàn bộ công việc và văn bản ảo năm 2025 không?')) {
-      await clearDummyData();
-      showToast('Đã dọn dẹp sạch danh sách ảo!');
-    }
-  };
-
-  const getStatusBadge = (task: Task) => {
-    const isOverdue = task.due_at && new Date(task.due_at) < now && task.status !== 'hoan_thanh' && task.status !== 'huy';
-
-    if (isOverdue) {
-      return (
-        <span className="inline-flex items-center px-3 py-0.5 rounded-full text-[11px] font-bold bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA] dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800">
-          Quá hạn
-        </span>
-      );
-    }
-
-    switch (task.status) {
-      case 'pending_review':
-      case 'cho_duyet':
-        return (
-          <span className="inline-flex items-center px-3 py-0.5 rounded-full text-[11px] font-bold bg-[#FFFBEB] text-[#D97706] border border-[#FDE68A] dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800">
-            Chờ duyệt
-          </span>
-        );
-      case 'hoan_thanh':
-        return (
-          <span className="inline-flex items-center px-3 py-0.5 rounded-full text-[11px] font-bold bg-[#ECFDF5] text-[#059669] border border-[#A7F3D0] dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800">
-            Hoàn thành
-          </span>
-        );
-      case 'dang_lam':
-        return (
-          <span className="inline-flex items-center px-3 py-0.5 rounded-full text-[11px] font-bold bg-[#EBF2FF] text-[#0B5CFF] border border-[#BFDBFE] dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800">
-            Đang thực hiện
-          </span>
-        );
-      default:
-        return (
-          <span className="inline-flex items-center px-3 py-0.5 rounded-full text-[11px] font-bold bg-[#F1F5F9] text-[#475569] border border-[#CBD5E1] dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700">
-            Chưa bắt đầu
-          </span>
-        );
-    }
-  };
-
-  const getPriorityDot = (priority: string) => {
-    switch (priority) {
-      case 'khan':
-        return 'bg-destructive';
-      case 'cao':
-        return 'bg-amber-500';
-      case 'thap':
-        return 'bg-muted-foreground';
-      default:
-        return 'bg-primary';
-    }
-  };
+  // Pending evaluation
+  const activePeriod = evaluationPeriods.find((p) => p.status === 'open');
+  const userEval = evaluations.find(
+    (e) => e.profile_id === profile.id && e.period_id === activePeriod?.id
+  );
+  const isEvalPending = userEval?.status === 'not_submitted' || !userEval;
 
   return (
-    <div className="space-y-4 pb-6">
-      {/* Toast thông báo */}
-      {toastMessage && (
-        <div className="fixed bottom-6 right-6 z-50 bg-emerald-600 text-white px-4 py-3 rounded-2xl shadow-xl flex items-center gap-2 text-xs font-bold animate-in slide-in-from-bottom-5">
-          <CheckCircle2 className="w-4 h-4" />
-          <span>{toastMessage}</span>
+    <div className="space-y-6 animate-in fade-in duration-300">
+      {/* 1. GREETING & TOP STATS BANNER */}
+      <div className="rounded-2xl border border-border bg-card p-6 shadow-xs flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
+        <div>
+          <h1 className="text-2xl font-black text-foreground tracking-tight">
+            Xin chào, {profile.full_name.split(' ').slice(-2).join(' ')}
+          </h1>
+          <p className="text-xs text-muted-foreground mt-1">Theo dõi hồ sơ, chức vụ và công việc của bạn</p>
         </div>
-      )}
 
-      <section className="dashboard-hero" aria-label="Lời chào">
-        <div className="space-y-2">
-          <span className="text-[10px] uppercase tracking-[.16em] font-semibold text-primary">Không gian làm việc BTV</span>
-          <h1>Xin chào, {currentMember.full_name}! 👋</h1>
-          <p className="text-muted-foreground">Cùng nhau xây dựng môi trường học tập năng động.<br className="hidden xl:block" /> Sáng tạo và giàu bản sắc thanh niên.</p>
-        </div>
-        <img src="/images/hcmute-campus.webp" alt="Khuôn viên trường HCMUTE" className="dashboard-campus" />
-        <blockquote className="dashboard-quote">“Đâu cần thanh niên có,<br />đâu khó có thanh niên”<cite>— Chủ tịch Hồ Chí Minh</cite></blockquote>
-      </section>
-
-      {/* 2. DẢI NÚT THAO TÁC NHANH (QUICK ACTIONS TOOLBAR) */}
-      <div className="flex items-center gap-2 sm:gap-2.5 overflow-x-auto pb-1 scrollbar-none snap-x -mx-1 px-1">
-        <button
-          onClick={() => setIsCreateTaskModalOpen(true)}
-          className="px-4 py-2 rounded-xl bg-[#0B5CFF] text-white font-bold text-xs flex items-center gap-2 shadow-xs hover:bg-blue-600 transition-all active:scale-95 shrink-0"
-        >
-          <PlusCircle className="w-4 h-4" />
-          <span>+ Giao việc mới</span>
-        </button>
-
-        <button
-          onClick={() => setIsCreateDocModalOpen(true)}
-          className="px-4 py-2 rounded-xl bg-teal-600 text-white font-bold text-xs flex items-center gap-2 shadow-xs hover:bg-teal-700 transition-all active:scale-95 shrink-0"
-        >
-          <FilePlus className="w-4 h-4" />
-          <span>+ Tiếp nhận văn bản</span>
-        </button>
-
-        <button
-          onClick={() => setIsCreateCampaignModalOpen(true)}
-          className="px-4 py-2 rounded-xl bg-amber-500 text-white font-bold text-xs flex items-center gap-2 shadow-xs hover:bg-amber-600 transition-all active:scale-95 shrink-0"
-        >
-          <FolderPlus className="w-4 h-4" />
-          <span>+ Tạo mảng việc</span>
-        </button>
-
-        <button
-          onClick={handleEnableNotification}
-          className="px-4 py-2 rounded-xl border border-border bg-white dark:bg-card hover:bg-muted text-foreground font-bold text-xs flex items-center gap-2 transition-all active:scale-95 shrink-0 shadow-2xs"
-        >
-          <Bell className="w-4 h-4 text-primary" />
-          <span>{notifState === 'granted' ? 'Đã bật thông báo' : 'Bật thông báo điện thoại'}</span>
-        </button>
-
-        {dummyTasksCount > 0 && (
-          <button
-            onClick={handleClearDummy}
-            className="px-3.5 py-2 rounded-xl bg-destructive/10 text-destructive border border-destructive/20 hover:bg-destructive/20 font-bold text-xs flex items-center gap-1.5 transition-all active:scale-95 shrink-0"
-            title="Xóa các công việc mẫu năm 2025"
+        {/* Stat badges */}
+        <div className="flex flex-wrap items-center gap-3">
+          <div
+            onClick={() => setUserTab('ho_so')}
+            className="flex items-center gap-3 rounded-xl border border-rose-200 dark:border-rose-900 bg-rose-50/50 dark:bg-rose-950/20 px-4 py-2.5 cursor-pointer hover:bg-rose-50 transition-colors"
           >
-            <Trash2 className="w-3.5 h-3.5" />
-            <span>Xóa danh sách ảo ({dummyTasksCount})</span>
-          </button>
-        )}
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-rose-500/10 text-rose-600">
+              <FileText className="h-4.5 w-4.5" />
+            </div>
+            <div>
+              <p className="text-[11px] font-semibold text-muted-foreground">Yêu cầu chờ duyệt</p>
+              <p className="text-lg font-black text-rose-600 leading-tight">{pendingRequests.length}</p>
+            </div>
+          </div>
+
+          <div
+            onClick={() => setUserTab('danh_gia')}
+            className="flex items-center gap-3 rounded-xl border border-blue-200 dark:border-blue-900 bg-blue-50/50 dark:bg-blue-950/20 px-4 py-2.5 cursor-pointer hover:bg-blue-50 transition-colors"
+          >
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <Calendar className="h-4.5 w-4.5" />
+            </div>
+            <div>
+              <p className="text-[11px] font-semibold text-muted-foreground">Đánh giá đến hạn</p>
+              <p className="text-lg font-black text-primary leading-tight">{isEvalPending ? 1 : 0}</p>
+            </div>
+          </div>
+
+          <div
+            onClick={() => setUserTab('thong_bao')}
+            className="flex items-center gap-3 rounded-xl border border-rose-200 dark:border-rose-900 bg-rose-50/50 dark:bg-rose-950/20 px-4 py-2.5 cursor-pointer hover:bg-rose-50 transition-colors"
+          >
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-rose-500/10 text-rose-600">
+              <Bell className="h-4.5 w-4.5" />
+            </div>
+            <div>
+              <p className="text-[11px] font-semibold text-muted-foreground">Thông báo mới</p>
+              <p className="text-lg font-black text-rose-600 leading-tight">{unreadNotifs.length}</p>
+            </div>
+          </div>
+        </div>
       </div>
 
-      {/* 3. BỐN THẺ CHỈ SỐ NHANH (Khớp 100% hình 02-dashboard-overview.png) */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-        {/* Card 1: 9 Thành viên BTV */}
-        <button type="button"
-          onClick={() => setActiveTab('thanh_vien')}
-          className="bg-white dark:bg-card rounded-2xl p-4 sm:p-5 border border-border shadow-xs hover:shadow-md transition-all cursor-pointer group text-left"
-        >
-          <div className="flex items-center gap-3.5">
-            <div className="w-12 h-12 rounded-2xl bg-blue-50 dark:bg-blue-950/50 text-[#0B5CFF] flex items-center justify-center group-hover:scale-105 transition-transform shadow-2xs">
-              <Users className="w-6 h-6" />
-            </div>
-            <div>
-              <div className="text-2xl font-black text-foreground leading-none">{members.length}</div>
-              <div className="text-xs text-muted-foreground font-medium mt-1">Thành viên BTV</div>
-            </div>
-          </div>
-        </button>
-
-        {/* Card 2: Công việc đang thực hiện */}
-        <button type="button"
-          onClick={() => setActiveTab('cong_viec')}
-          className="bg-white dark:bg-card rounded-2xl p-4 sm:p-5 border border-border shadow-xs hover:shadow-md transition-all cursor-pointer group text-left"
-        >
-          <div className="flex items-center gap-3.5">
-            <div className="w-12 h-12 rounded-2xl bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 flex items-center justify-center group-hover:scale-105 transition-transform shadow-2xs">
-              <ClipboardList className="w-6 h-6" />
-            </div>
-            <div>
-              <div className="text-2xl font-black text-foreground leading-none">{inProgressTasks.length}</div>
-              <div className="text-xs text-muted-foreground font-medium mt-1">Công việc đang thực hiện</div>
-            </div>
-          </div>
-        </button>
-
-        {/* Card 3: Công việc quá hạn */}
-        <button type="button"
-          onClick={() => setActiveTab('dieu_phoi')}
-          className="bg-white dark:bg-card rounded-2xl p-4 sm:p-5 border border-border shadow-xs hover:shadow-md transition-all cursor-pointer group text-left"
-        >
-          <div className="flex items-center gap-3.5">
-            <div className="w-12 h-12 rounded-2xl bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 flex items-center justify-center group-hover:scale-105 transition-transform shadow-2xs">
-              <Clock className="w-6 h-6" />
-            </div>
-            <div>
-              <div className="text-2xl font-black text-rose-600 dark:text-rose-400 leading-none">{overdueTasks.length}</div>
-              <div className="text-xs text-muted-foreground font-medium mt-1">Công việc quá hạn</div>
-            </div>
-          </div>
-        </button>
-
-        {/* Card 4: Dự án / Chiến dịch */}
-        <button type="button"
-          onClick={() => setActiveTab('du_an')}
-          className="bg-white dark:bg-card rounded-2xl p-4 sm:p-5 border border-border shadow-xs hover:shadow-md transition-all cursor-pointer group text-left"
-        >
-          <div className="flex items-center gap-3.5">
-            <div className="w-12 h-12 rounded-2xl bg-purple-50 dark:bg-purple-950/50 text-purple-600 dark:text-purple-400 flex items-center justify-center group-hover:scale-105 transition-transform shadow-2xs">
-              <Target className="w-6 h-6" />
-            </div>
-            <div>
-              <div className="text-2xl font-black text-foreground leading-none">{campaigns.length}</div>
-              <div className="text-xs text-muted-foreground font-medium mt-1">Dự án / Chiến dịch</div>
-            </div>
-          </div>
-        </button>
-      </div>
-
-      {/* 4. KHU VỰC BỐ CỤC 2 CỘT CHÍNH */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        {/* CỘT TRÁI (RỘNG): Bảng Công việc gần đây */}
-        <div className="xl:col-span-2 space-y-6">
-          <div className="bg-card rounded-3xl border border-border p-5 sm:p-6 shadow-xs text-card-foreground">
-            <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
-              <div>
-                <h3 className="text-base font-bold text-foreground tracking-tight">Công việc gần đây</h3>
-                <p className="text-xs text-muted-foreground">Các nhiệm vụ trọng tâm đang được BTV triển khai</p>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setIsCreateTaskModalOpen(true)}
-                  className="px-3 py-1.5 rounded-xl bg-primary/10 text-primary hover:bg-primary/20 text-xs font-bold flex items-center gap-1 transition-all"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Tạo việc</span>
-                </button>
-                <button
-                  onClick={() => setActiveTab('cong_viec')}
-                  className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
-                >
-                  <span>Xem tất cả</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </div>
-
-            {/* Bảng danh sách trên Desktop (Khớp 100% hình 02-dashboard-overview.png) */}
-            <div className="hidden sm:block overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="border-b border-border text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
-                    <th className="pb-3 pl-2 w-8">#</th>
-                    <th className="pb-3">Tên công việc</th>
-                    <th className="pb-3">Người phụ trách</th>
-                    <th className="pb-3">Hạn hoàn thành</th>
-                    <th className="pb-3 text-right pr-2">Trạng thái</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border text-xs">
-                  {recentTasks.length === 0 ? (
-                    <tr>
-                      <td colSpan={5} className="py-8 text-center text-muted-foreground">
-                        Chưa có công việc nào. Hãy bấm <b>+ Giao việc mới</b> ở trên để tạo nhiệm vụ đầu tiên!
-                      </td>
-                    </tr>
-                  ) : (
-                    recentTasks.map((t, index) => {
-                      const owner = members.find((m) => m.id === t.owner_id);
-                      return (
-                        <tr
-                          key={t.id}
-                          onClick={() => setSelectedTaskId(t.id)}
-                          className="hover:bg-muted/40 transition-colors cursor-pointer group"
-                        >
-                          <td className="py-3.5 pl-2 font-bold text-muted-foreground w-8">
-                            {index + 1}
-                          </td>
-
-                          <td className="py-3.5 font-semibold text-foreground group-hover:text-primary transition-colors">
-                            <div className="flex items-center gap-2.5">
-                              <span className={`w-2 h-2 rounded-full shrink-0 ${getPriorityDot(t.priority)}`} />
-                              <span className="truncate max-w-xs">{t.title}</span>
-                            </div>
-                          </td>
-
-                          <td className="py-3.5 text-muted-foreground">
-                            <div className="flex items-center gap-2">
-                              <AvatarWithFallback
-                                name={owner?.full_name || 'BTV'}
-                                src={owner?.avatar_url}
-                                size={26}
-                                className="ring-1 ring-border"
-                              />
-                              <span className="font-medium text-foreground truncate">{owner?.full_name || 'Chưa gán'}</span>
-                            </div>
-                          </td>
-
-                          <td className="py-3.5 text-muted-foreground font-mono text-[11px]">
-                            {t.due_at ? format(new Date(t.due_at), 'dd/MM/yyyy') : 'Linh hoạt'}
-                          </td>
-
-                          <td className="py-3.5 text-right pr-2">{getStatusBadge(t)}</td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Danh sách thẻ dạng Card tối ưu riêng cho điện thoại di động */}
-            <div className="sm:hidden divide-y divide-border -mx-1">
-              {recentTasks.length === 0 ? (
-                <div className="py-6 text-center text-xs text-muted-foreground">
-                  Chưa có công việc nào. Bấm <b>+ Giao việc mới</b> ở trên!
-                </div>
-              ) : (
-                recentTasks.map((t) => {
-                  const owner = members.find((m) => m.id === t.owner_id);
-                  return (
-                    <div
-                      key={t.id}
-                      onClick={() => setSelectedTaskId(t.id)}
-                      className="py-3 px-2 active:bg-muted/50 rounded-xl transition-colors cursor-pointer space-y-2"
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex items-start gap-2 flex-1 min-w-0">
-                          <span className={`w-2 h-2 rounded-full shrink-0 mt-1.5 ${getPriorityDot(t.priority)}`} />
-                          <h4 className="text-xs font-bold text-foreground leading-snug line-clamp-2">
-                            {t.title}
-                          </h4>
-                        </div>
-                        <div className="shrink-0">{getStatusBadge(t)}</div>
-                      </div>
-
-                      <div className="flex items-center justify-between text-[11px] text-muted-foreground pt-0.5">
-                        <div className="flex items-center gap-1.5">
-                          <AvatarWithFallback
-                            name={owner?.full_name || 'BTV'}
-                            src={owner?.avatar_url}
-                            size={22}
-                            className="ring-1 ring-border"
-                          />
-                          <span className="font-medium text-foreground truncate max-w-[120px]">
-                            {owner?.full_name || 'Chưa gán'}
-                          </span>
-                        </div>
-                        <span className="font-mono text-[10px]">
-                          {t.due_at ? format(new Date(t.due_at), 'dd/MM/yyyy') : 'Linh hoạt'}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
-
-          {/* Lịch trình công việc */}
-          <div className="bg-white dark:bg-card rounded-3xl border border-border p-5 sm:p-6 shadow-xs text-card-foreground">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
-                <Clock className="w-4 h-4 text-primary" />
-                <h3 className="text-sm font-bold text-foreground">
-                  Nhiệm vụ cần theo dõi
-                </h3>
-              </div>
-              <span className="text-[11px] font-semibold text-primary bg-primary/10 px-2.5 py-0.5 rounded-full">
-                {upcomingTasks.length} công việc
+      {/* 2. MAIN 2-COLUMN SECTION */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        {/* LEFT COLUMN: Profile summary + Tasks */}
+        <div className="lg:col-span-6 space-y-6">
+          {/* Card: Hồ sơ của tôi */}
+          <div className="rounded-2xl border border-border bg-card p-6 shadow-xs space-y-5">
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-bold text-foreground">Hồ sơ của tôi</h2>
+              <span className="flex items-center gap-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 text-[11px] font-bold text-emerald-700 dark:text-emerald-400">
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                Hồ sơ đã xác thực
               </span>
             </div>
 
-            <div className="space-y-2.5">
-              {upcomingTasks.length === 0 && <p className="py-4 text-xs text-muted-foreground">Không có công việc đang chờ xử lý.</p>}
-              {upcomingTasks.slice(0, 4).map((t) => (
-                <div
-                  key={t.id}
-                  className="flex items-center justify-between p-3 rounded-2xl bg-slate-50 dark:bg-muted/40 hover:bg-muted/70 transition-colors border border-border"
+            <div className="flex items-center gap-4">
+              <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary text-xl font-black shadow-xs">
+                {currentUser.avatar_code}
+              </div>
+              <div>
+                <h3 className="text-lg font-black text-foreground">{profile.full_name}</h3>
+                <p className="text-xs text-muted-foreground font-semibold">
+                  MSSV: {profile.student_id || profile.staff_id}
+                </p>
+                <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+                  <span>
+                    Đơn vị: <strong className="text-foreground">{profile.roles[0]?.unit_name || 'Đoàn cơ sở'}</strong>
+                  </span>
+                  <span>•</span>
+                  <span>
+                    Ngành học: <strong className="text-foreground">{profile.major || 'Công nghệ thông tin'}</strong>
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Current roles list */}
+            <div className="space-y-2 pt-2 border-t border-border">
+              <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+                Chức vụ hiện tại ({profile.roles.length})
+              </p>
+              <div className="space-y-2">
+                {profile.roles.map((role) => (
+                  <div
+                    key={role.id}
+                    className="flex items-center gap-3 p-3 rounded-xl bg-muted/40 border border-border/60 hover:bg-muted transition-colors"
+                  >
+                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                      <UserCheck className="h-4 w-4" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-bold text-foreground truncate">{role.position_title}</p>
+                      <p className="text-[11px] text-muted-foreground truncate">{role.unit_name}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Action buttons */}
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                onClick={() => setUserTab('ho_so')}
+                className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-primary text-primary-foreground py-2.5 text-xs font-bold shadow-xs hover:bg-primary/90 transition-all cursor-pointer"
+              >
+                <span>Xem hồ sơ</span>
+              </button>
+              <button
+                onClick={() => setUserTab('ho_so')}
+                className="flex-1 flex items-center justify-center gap-2 rounded-xl border border-border bg-background py-2.5 text-xs font-bold text-foreground hover:bg-muted transition-all cursor-pointer"
+              >
+                <Edit className="h-3.5 w-3.5 text-muted-foreground" />
+                <span>Cập nhật thông tin</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Card: Việc cần làm */}
+          <div className="rounded-2xl border border-border bg-card p-6 shadow-xs space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-bold text-foreground">Việc cần làm</h2>
+              <button
+                onClick={() => setUserTab('danh_gia')}
+                className="text-xs font-semibold text-primary hover:underline flex items-center gap-1 cursor-pointer"
+              >
+                <span>Xem tất cả</span>
+                <ChevronRight className="h-3.5 w-3.5" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              {/* Task 1: Self evaluation */}
+              <div className="flex items-center justify-between p-3.5 rounded-xl border border-border bg-background hover:border-primary/40 transition-all">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-rose-500/10 text-rose-600">
+                    <FileText className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-foreground">Tự đánh giá tháng 10 năm 2026</h4>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">
+                      Hạn gửi: <strong className="text-rose-600">25/10/2026</strong>
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setUserTab('danh_gia')}
+                  className="rounded-xl bg-primary text-primary-foreground px-4 py-2 text-xs font-bold hover:bg-primary/90 transition-all cursor-pointer shadow-2xs"
                 >
+                  Thực hiện
+                </button>
+              </div>
+
+              {/* Task 2: Pending request check */}
+              {pendingRequests.length > 0 && (
+                <div className="flex items-center justify-between p-3.5 rounded-xl border border-border bg-background hover:border-primary/40 transition-all">
                   <div className="flex items-center gap-3">
-                    <button
-                      aria-label={`Cập nhật trạng thái: ${t.title}`}
-                      onClick={() => updateTaskStatus(t.id, t.status === 'hoan_thanh' ? 'dang_lam' : 'hoan_thanh')}
-                      className="text-muted-foreground hover:text-primary transition-colors"
-                    >
-                      {t.status === 'hoan_thanh' ? (
-                        <CheckCircle2 className="w-5 h-5 text-emerald-500" />
-                      ) : (
-                        <Circle className="w-5 h-5" />
-                      )}
-                    </button>
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/10 text-amber-600">
+                      <FileText className="h-5 w-5" />
+                    </div>
                     <div>
-                      <h4 className="text-xs font-semibold text-foreground">{t.title}</h4>
-                      <span className="text-[10px] text-muted-foreground">
-                        {t.due_at ? format(new Date(t.due_at), 'HH:mm - dd/MM') : 'Linh hoạt'}
-                      </span>
+                      <h4 className="text-xs font-bold text-foreground">Yêu cầu cập nhật hồ sơ</h4>
+                      <p className="text-[11px] text-muted-foreground mt-0.5">
+                        Đã gửi ngày {pendingRequests[0].created_at} •{' '}
+                        <span className="text-amber-600 font-bold">Chờ duyệt</span>
+                      </p>
                     </div>
                   </div>
                   <button
-                    onClick={() => setSelectedTaskId(t.id)}
-                    className="text-[11px] text-primary hover:underline font-semibold"
+                    onClick={() => {
+                      setSelectedRequestId(pendingRequests[0].id);
+                      setUserTab('ho_so');
+                    }}
+                    className="rounded-xl border border-border bg-background px-3.5 py-2 text-xs font-bold text-foreground hover:bg-muted transition-all cursor-pointer"
                   >
-                    Chi tiết
+                    Xem yêu cầu
                   </button>
                 </div>
-              ))}
+              )}
             </div>
           </div>
         </div>
 
-        {/* CỘT PHẢI (HẸP): Lịch tháng + Thông báo + Thành viên */}
-        <div className="space-y-6">
-          <DashboardCalendar />
-
-          {/* Widget Thông báo */}
-          <div className="bg-card rounded-3xl border border-border p-5 shadow-xs text-card-foreground">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-destructive animate-pulse" />
-                <h3 className="text-sm font-bold text-foreground">Thông báo mới</h3>
-              </div>
+        {/* RIGHT COLUMN: Recent Notifications & History timeline */}
+        <div className="lg:col-span-6 space-y-6">
+          {/* Card: Thông báo gần đây */}
+          <div className="rounded-2xl border border-border bg-card p-6 shadow-xs space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-bold text-foreground">Thông báo gần đây</h2>
               <button
-                onClick={() => setActiveTab('chat')}
-                className="text-xs text-primary hover:underline font-semibold"
+                onClick={() => setUserTab('thong_bao')}
+                className="text-xs font-semibold text-primary hover:underline flex items-center gap-1 cursor-pointer"
               >
-                Kênh BTV →
+                <span>Xem tất cả</span>
+                <ChevronRight className="h-3.5 w-3.5" />
               </button>
             </div>
 
-            <div className="divide-y divide-border">
-              {notifications.slice(0, 4).map((n) => (
-                <div key={n.id} className="py-2.5 first:pt-0 last:pb-0 hover:bg-muted/40 rounded-xl px-1 transition-colors">
-                  <div className="text-xs font-semibold text-foreground leading-snug">{n.title}</div>
-                  <div className="text-[10px] text-muted-foreground mt-0.5">{n.time}</div>
+            <div className="space-y-3.5">
+              {notifications.slice(0, 3).map((item, idx) => (
+                <div
+                  key={item.id}
+                  onClick={() => setUserTab('thong_bao')}
+                  className="flex gap-3 p-3 rounded-xl hover:bg-muted/60 transition-colors cursor-pointer"
+                >
+                  <div className="mt-1">
+                    <span
+                      className={`block h-2.5 w-2.5 rounded-full ${
+                        idx === 0 ? 'bg-rose-500' : 'bg-primary'
+                      }`}
+                    />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-xs font-bold text-foreground truncate">{item.title}</h4>
+                      <span className="text-[10px] text-muted-foreground shrink-0">{item.created_at}</span>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground mt-1 line-clamp-2 leading-relaxed">
+                      {item.content}
+                    </p>
+                  </div>
                 </div>
               ))}
             </div>
           </div>
 
-          {/* Widget Thành viên */}
-          <div className="bg-card rounded-3xl border border-border p-5 shadow-xs text-card-foreground">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-bold text-foreground">Ban Thường vụ ({members.length} Đ/c)</h3>
+          {/* Card: Lịch sử chức vụ */}
+          <div className="rounded-2xl border border-border bg-card p-6 shadow-xs space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-bold text-foreground">Lịch sử chức vụ</h2>
               <button
-                onClick={() => setActiveTab('thanh_vien')}
-                className="text-xs text-primary hover:underline font-semibold"
+                onClick={() => setUserTab('quyet_dinh')}
+                className="text-xs font-semibold text-primary hover:underline flex items-center gap-1 cursor-pointer"
               >
-                Xem tất cả →
+                <span>Xem toàn bộ lịch sử</span>
+                <ChevronRight className="h-3.5 w-3.5" />
               </button>
             </div>
 
-            <div className="grid grid-cols-3 gap-2.5 text-center">
-              {members.slice(0, 6).map((m) => (
-                <div
-                  key={m.id}
-                  onClick={() => setActiveTab('thanh_vien')}
-                  className="p-2 rounded-2xl hover:bg-muted/60 transition-all cursor-pointer group"
-                >
-                  <img
-                    src={m.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100'}
-                    alt={m.full_name}
-                    className="w-11 h-11 rounded-full mx-auto object-cover ring-2 ring-border group-hover:ring-primary/40 transition-all"
-                  />
-                  <div className="text-[11px] font-bold text-foreground truncate mt-1.5 leading-tight">
-                    {m.full_name}
-                  </div>
-                  <div className="text-[9px] text-muted-foreground truncate">
-                    {m.role === 'bi_thu'
-                      ? 'Bí thư'
-                      : m.role === 'pho_bi_thu'
-                      ? 'Phó Bí thư'
-                      : m.role === 'chanh_van_phong'
-                      ? 'Chánh VP'
-                      : 'Ủy viên'}
-                  </div>
+            <div className="relative pl-6 space-y-4 before:absolute before:left-2 before:top-2 before:bottom-2 before:w-0.5 before:bg-primary/30">
+              {profile.roles.map((role) => (
+                <div key={role.id} className="relative">
+                  <div className="absolute -left-6 top-1 h-2.5 w-2.5 rounded-full border-2 border-primary bg-background" />
+                  <p className="text-[11px] font-bold text-primary">
+                    {role.start_date.substring(5, 7)}/{role.start_date.substring(0, 4)} –{' '}
+                    {role.end_date ? `${role.end_date.substring(5, 7)}/${role.end_date.substring(0, 4)}` : 'Hiện tại'}
+                  </p>
+                  <h4 className="text-xs font-bold text-foreground mt-0.5">{role.position_title}</h4>
+                  <p className="text-[11px] text-muted-foreground">{role.unit_name}</p>
                 </div>
               ))}
             </div>
           </div>
         </div>
       </div>
-      <EventCountdown />
+
+      {/* 3. BOTTOM QUICK ACTION CARDS (4 CARDS MATCHING SCREEN 4) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-2">
+        <div
+          onClick={() => setUserTab('to_chuc')}
+          className="flex items-center justify-between p-4 rounded-2xl border border-border bg-card hover:border-primary/40 hover:shadow-xs transition-all cursor-pointer group"
+        >
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500/10 text-primary group-hover:scale-105 transition-transform">
+              <Users className="h-5 w-5" />
+            </div>
+            <div>
+              <h4 className="text-xs font-bold text-foreground">Tra cứu cán bộ</h4>
+              <p className="text-[11px] text-muted-foreground">Thông tin tổ chức, cán bộ</p>
+            </div>
+          </div>
+          <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:text-primary group-hover:translate-x-1 transition-all" />
+        </div>
+
+        <div
+          onClick={() => setUserTab('danh_gia')}
+          className="flex items-center justify-between p-4 rounded-2xl border border-border bg-card hover:border-primary/40 hover:shadow-xs transition-all cursor-pointer group"
+        >
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-rose-500/10 text-rose-600 group-hover:scale-105 transition-transform">
+              <FileText className="h-5 w-5" />
+            </div>
+            <div>
+              <h4 className="text-xs font-bold text-foreground">Xem đánh giá</h4>
+              <p className="text-[11px] text-muted-foreground">Theo dõi kết quả xếp loại</p>
+            </div>
+          </div>
+          <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:text-primary group-hover:translate-x-1 transition-all" />
+        </div>
+
+        <div
+          onClick={() => setUserTab('quyet_dinh')}
+          className="flex items-center justify-between p-4 rounded-2xl border border-border bg-card hover:border-primary/40 hover:shadow-xs transition-all cursor-pointer group"
+        >
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-600 group-hover:scale-105 transition-transform">
+              <FileText className="h-5 w-5" />
+            </div>
+            <div>
+              <h4 className="text-xs font-bold text-foreground">Quyết định</h4>
+              <p className="text-[11px] text-muted-foreground">Các quyết định bổ nhiệm</p>
+            </div>
+          </div>
+          <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:text-primary group-hover:translate-x-1 transition-all" />
+        </div>
+
+        <div
+          onClick={() => setUserTab('thong_bao')}
+          className="flex items-center justify-between p-4 rounded-2xl border border-border bg-card hover:border-primary/40 hover:shadow-xs transition-all cursor-pointer group"
+        >
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-purple-500/10 text-purple-600 group-hover:scale-105 transition-transform">
+              <Bell className="h-5 w-5" />
+            </div>
+            <div>
+              <h4 className="text-xs font-bold text-foreground">Thông báo</h4>
+              <p className="text-[11px] text-muted-foreground">Xem tất cả thông báo</p>
+            </div>
+          </div>
+          <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:text-primary group-hover:translate-x-1 transition-all" />
+        </div>
+      </div>
     </div>
   );
 }

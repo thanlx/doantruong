@@ -1,2143 +1,1344 @@
 'use client';
 
 // ==============================================================================
-// APP CONTEXT: QUẢN LÝ DỮ LIỆU, ADMIN CRUD, REALTIME SUPABASE & WEB NOTIFICATION
+// APP CONTEXT: QUẢN LÝ DỮ LIỆU ĐỒNG BỘ 2 CHIỀU GIỮA TRANG NGƯỜI DÙNG & QUẢN TRỊ
 // ==============================================================================
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import {
-  Member,
-  Task,
-  Campaign,
-  IncomingDocument,
-  ChatMessage,
-  TaskComment,
-  ActivityLog,
-  TaskStatus,
-  TaskPriority,
-  ApprovalScope,
-  MemberRole,
-  RatingGrade,
-  WeeklyCheckin,
-  ChatRichCard,
-  PermissionKey,
-  RolePermissionsMap,
+  SubsystemInfo,
+  Unit,
+  PositionDefinition,
+  OfficerProfile,
+  PersonnelDecision,
+  ProfileUpdateRequest,
+  EvaluationPeriod,
+  MonthlyEvaluation,
+  NotificationItem,
+  AuditLog,
+  SystemConfig,
+  AppUser,
+  UserRole,
+  DecisionChangeLine,
+  SubsystemId,
+  ProfileFieldDiff,
 } from '@/types';
 import {
-  INITIAL_MEMBERS,
-  INITIAL_CAMPAIGNS,
-  INITIAL_DOCUMENTS,
-  INITIAL_TASKS,
-  INITIAL_CHAT_MESSAGES,
+  INITIAL_SUBSYSTEMS,
+  INITIAL_UNITS,
+  INITIAL_POSITIONS,
+  INITIAL_PROFILES,
+  INITIAL_DECISIONS,
+  INITIAL_UPDATE_REQUESTS,
+  INITIAL_EVALUATION_PERIODS,
+  INITIAL_EVALUATIONS,
   INITIAL_NOTIFICATIONS,
-  INITIAL_WEEKLY_CHECKINS,
-  DEFAULT_ROLE_PERMISSIONS,
+  INITIAL_AUDIT_LOGS,
+  INITIAL_SYSTEM_CONFIG,
+  DEFAULT_APP_USER,
+  INITIAL_USERS,
 } from '@/lib/mockData';
-import { checkCanManualRemind } from '@/lib/notifications';
-import { sendMobileNotification, registerServiceWorker } from '@/lib/pushNotifications';
-import { supabase, isSupabaseConfigured } from '@/lib/supabase';
-import {
-  fetchTasksFromSupabase,
-  fetchChatMessagesFromSupabase,
-  fetchIncomingDocsFromSupabase,
-  fetchCommentsFromSupabase,
-  fetchActivityLogsFromSupabase,
-  fetchMembersFromSupabase,
-  fetchCampaignsFromSupabase,
-  fetchRolePermissionsFromSupabase,
-  syncRolePermissionsToSupabase,
-  insertTaskToSupabase,
-  updateTaskOnSupabase,
-  deleteTaskFromSupabase,
-  insertChatMessageToSupabase,
-  insertIncomingDocToSupabase,
-  updateIncomingDocOnSupabase,
-  deleteIncomingDocFromSupabase,
-  insertCommentToSupabase,
-  insertActivityLogToSupabase,
-  insertMemberToSupabase,
-  updateMemberOnSupabase,
-  deleteMemberFromSupabase,
-  insertCampaignToSupabase,
-  updateCampaignOnSupabase,
-  deleteCampaignFromSupabase,
-  seedSupabaseIfEmpty,
-  subscribeToBTVRealtime,
-  signInWithGoogleOAuth,
-  signOutSupabase,
-} from '@/lib/supabaseService';
 
-// Hàm sinh mã UUID chuẩn RFC-4122 cho PostgreSQL
-function generateUUID(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID();
-  }
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    const v = c === 'x' ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
-}
+export type UserTab =
+  | 'trang_chu'
+  | 'ho_so'
+  | 'to_chuc'
+  | 'danh_gia'
+  | 'quyet_dinh'
+  | 'thong_bao'
+  | 'tai_khoan';
 
-// ------------------------------------------------------------------------------
-// HÀM HỖ TRỢ TOMBSTONE & PHỤC HỒI DỮ LIỆU LOCALSTORAGE (CHỐNG MẤT DỮ LIỆU KHI F5)
-// ------------------------------------------------------------------------------
-function getDeletedIdSet(key: string): Set<string> {
-  if (typeof window === 'undefined') return new Set();
-  try {
-    const raw = localStorage.getItem(key);
-    if (raw) {
-      const arr = JSON.parse(raw);
-      if (Array.isArray(arr)) return new Set(arr);
-    }
-  } catch (e) {}
-  return new Set();
-}
-
-function addDeletedId(key: string, id: string) {
-  if (typeof window === 'undefined') return;
-  try {
-    const set = getDeletedIdSet(key);
-    set.add(id);
-    localStorage.setItem(key, JSON.stringify(Array.from(set)));
-  } catch (e) {}
-}
-
-function isMockId(id: string): boolean {
-  if (!id || typeof id !== 'string') return false;
-  return /^[acd]\d{7}-\d{4}-\d{4}-\d{4}-\d{12}$|^m\d+$|^n\d+$|^w\d+$|^wc-\d+$/.test(id);
-}
-
-function ensureCleanCache() {
-  if (typeof window === 'undefined') return;
-  try {
-    const MOCK_CLEARED_FLAG = 'btv_mock_data_cleared_v2026_final';
-    if (localStorage.getItem(MOCK_CLEARED_FLAG) !== 'true') {
-      localStorage.removeItem('btv_tasks');
-      localStorage.removeItem('btv_docs');
-      localStorage.removeItem('btv_campaigns');
-      localStorage.removeItem('btv_chat_messages');
-      localStorage.removeItem('btv_comments');
-      localStorage.removeItem('btv_activity_logs');
-      localStorage.removeItem('btv_weekly_checkins');
-      localStorage.removeItem('btv_deleted_task_ids');
-      localStorage.removeItem('btv_deleted_campaign_ids');
-      localStorage.removeItem('btv_deleted_doc_ids');
-      localStorage.setItem('btv_tasks', '[]');
-      localStorage.setItem('btv_docs', '[]');
-      localStorage.setItem('btv_campaigns', '[]');
-      localStorage.setItem('btv_chat_messages', '[]');
-      localStorage.setItem('btv_comments', '[]');
-      localStorage.setItem('btv_activity_logs', '[]');
-      localStorage.setItem('btv_weekly_checkins', '[]');
-      localStorage.setItem(MOCK_CLEARED_FLAG, 'true');
-    }
-  } catch (e) {}
-}
-
-function getStoredItem<T>(key: string, fallback: T, deletedKey?: string): T {
-  if (typeof window === 'undefined') return fallback;
-  try {
-    ensureCleanCache();
-    const raw = localStorage.getItem(key);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        const deletedSet = deletedKey ? getDeletedIdSet(deletedKey) : new Set<string>();
-        return parsed.filter((item: any) => {
-          if (!item || !item.id) return false;
-          if (deletedSet.has(item.id)) return false;
-          if (key !== 'btv_members' && isMockId(item.id)) return false;
-          return true;
-        }) as unknown as T;
-      }
-      return parsed;
-    }
-  } catch (e) {}
-  return fallback;
-}
+export type AdminTab =
+  | 'tong_quan'
+  | 'ho_so'
+  | 'to_chuc'
+  | 'quyet_dinh'
+  | 'duyet_ho_so'
+  | 'danh_gia'
+  | 'bao_cao'
+  | 'thong_bao'
+  | 'phan_quyen'
+  | 'cau_hinh'
+  | 'nhat_ky';
 
 interface AppContextType {
-  // Thành viên & Người dùng hiện tại
-  members: Member[];
-  currentMember: Member;
-  setCurrentMemberId: (id: string) => void;
+  // Navigation & User Context
+  portalMode: 'user' | 'admin';
+  setPortalMode: (mode: 'user' | 'admin') => void;
+  togglePortalMode: () => void;
+  userTab: UserTab;
+  setUserTab: (tab: UserTab) => void;
+  adminTab: AdminTab;
+  setAdminTab: (tab: AdminTab) => void;
+  currentUser: AppUser;
+  switchUserRole: (role: UserRole) => void;
+  updateUserScope: (scopeId: string, scopeName: string) => void;
+  hasPermission: (action: string) => boolean;
 
-  // Phiên đăng nhập & Auth Gate
-  isAuthenticated: boolean;
-  loginAsMember: (memberId: string) => void;
-  logout: () => Promise<void>;
+  // Master Data
+  subsystems: SubsystemInfo[];
+  units: Unit[];
+  positions: PositionDefinition[];
+  profiles: OfficerProfile[];
+  decisions: PersonnelDecision[];
+  updateRequests: ProfileUpdateRequest[];
+  evaluationPeriods: EvaluationPeriod[];
+  evaluations: MonthlyEvaluation[];
+  notifications: NotificationItem[];
+  auditLogs: AuditLog[];
+  systemConfig: SystemConfig;
+  setSystemConfig: React.Dispatch<React.SetStateAction<SystemConfig>>;
+  users: AppUser[];
+  setUsers: React.Dispatch<React.SetStateAction<AppUser[]>>;
+  roles: any[];
+  addNotification: (notif: any) => void;
+  addAuditLog: (log: any) => void;
 
-  // CRUD Thành viên (Dành cho Admin)
-  addMember: (memberData: Partial<Member>) => Member;
-  updateMember: (memberId: string, updates: Partial<Member>) => void;
-  deleteMember: (memberId: string) => void;
-  updateMemberAvatar: (memberId: string, newAvatarUrl: string) => void;
+  // Selection state for quick navigation
+  selectedProfileId: string | null;
+  setSelectedProfileId: (id: string | null) => void;
+  selectedUnitId: string | null;
+  setSelectedUnitId: (id: string | null) => void;
+  selectedDecisionId: string | null;
+  setSelectedDecisionId: (id: string | null) => void;
+  selectedRequestId: string | null;
+  setSelectedRequestId: (id: string | null) => void;
+  selectedPeriodId: string;
+  setSelectedPeriodId: (id: string) => void;
 
-  // Quản lý Phân quyền (RBAC)
-  rolePermissions: RolePermissionsMap;
-  updateRolePermissions: (role: MemberRole, permissions: PermissionKey[]) => void;
-  updateMemberCustomPermissions: (memberId: string, permissions?: PermissionKey[]) => void;
-  resetRolePermissionsToDefault: () => void;
-  hasPermission: (permKey: PermissionKey, member?: Member) => boolean;
-
-  // Modal Thay đổi Avatar
-  isAvatarModalOpen: boolean;
-  setIsAvatarModalOpen: (open: boolean) => void;
-  avatarModalTargetMember: Member | null;
-  openAvatarModal: (member?: Member) => void;
-  closeAvatarModal: () => void;
-
-  // CRUD Mục lục / Mảng việc / Dự án
-  addCampaign: (campData: Partial<Campaign>) => Campaign;
-  updateCampaign: (campId: string, updates: Partial<Campaign>) => void;
-  deleteCampaign: (campId: string) => void;
-
-  // Xóa danh sách ảo (Làm sạch dữ liệu)
-  clearDummyData: () => Promise<void>;
-
-  // Xác thực Google OAuth
-  authUser: any;
-  isAuthLoading: boolean;
-  isAuthModalOpen: boolean;
-  setIsAuthModalOpen: (open: boolean) => void;
-  signInWithGoogle: () => Promise<{ error: string | null }>;
-  signOut: () => Promise<void>;
-
-  // Trạng thái kết nối Supabase Cloud & Realtime
-  isSupabaseConnected: boolean;
-  isRealtimeLive: boolean;
-  refreshDataFromSupabase: () => Promise<void>;
-
-  // Dữ liệu cốt lõi
-  tasks: Task[];
-  campaigns: Campaign[];
-  incomingDocs: IncomingDocument[];
-  chatMessages: ChatMessage[];
-  activityLogs: ActivityLog[];
-  comments: TaskComment[];
-  notifications: any[];
-
-  // Weekly Check-in (Nhiệt kế Tinh thần BTV)
-  weeklyCheckins: WeeklyCheckin[];
-  addWeeklyCheckin: (checkin: Omit<WeeklyCheckin, 'id' | 'created_at'>) => WeeklyCheckin;
-  isWeeklyCheckinModalOpen: boolean;
-  setIsWeeklyCheckinModalOpen: (open: boolean) => void;
-
-  // Trình xem PDF Scan Công văn (PdfViewerModal)
-  selectedPdfUrl: string | null;
-  selectedPdfTitle: string | null;
-  selectedPdfDoc: IncomingDocument | null;
-  isPdfModalOpen: boolean;
-  openPdfViewer: (url: string, title?: string, doc?: IncomingDocument) => void;
-  closePdfViewer: () => void;
-
-  // Điều hướng
-  activeTab: string;
-  setActiveTab: (tab: string) => void;
-  selectedTaskId: string | null;
-  setSelectedTaskId: (id: string | null) => void;
-  isCreateTaskModalOpen: boolean;
-  setIsCreateTaskModalOpen: (open: boolean) => void;
-  isCreateDocModalOpen: boolean;
-  setIsCreateDocModalOpen: (open: boolean) => void;
-  isCreateCampaignModalOpen: boolean;
-  setIsCreateCampaignModalOpen: (open: boolean) => void;
-
-  // Trạng thái Client Mount (Tránh Hydration Error #418)
-  isMounted: boolean;
-
-  // Thao tác Công việc (Ghi vĩnh viễn Supabase + Realtime)
-  addTask: (task: Partial<Task> & { collaborator_ids?: string[] }) => Task;
-  updateTask: (taskId: string, updates: Partial<Task>) => void;
-  deleteTask: (taskId: string) => void;
-  updateTaskStatus: (taskId: string, status: TaskStatus) => void;
-  submitTaskForApproval: (taskId: string) => void;
-  submitTaskResult: (taskId: string, submission: { note: string; links?: string[]; files?: string[] }) => void;
-  reviewTaskResult: (taskId: string, review: { grade: RatingGrade; score: number; feedback: string; approved: boolean }) => void;
-  approveTask: (taskId: string) => { success: boolean; message?: string };
-  rejectTask: (taskId: string, reason: string) => void;
-  manualRemind: (taskId: string, message: string) => { success: boolean; message: string };
-
-  // Thao tác Văn bản đến
-  addIncomingDoc: (doc: Partial<IncomingDocument>) => IncomingDocument;
-  deleteIncomingDoc: (docId: string) => void;
-  assignTaskFromDocument: (docId: string, taskData?: Partial<Task>) => { success: boolean; task?: Task; message?: string };
-  createTasksFromDoc: (
-    docId: string,
-    assigneeIds: string[],
-    title?: string,
-    description?: string,
-    priority?: TaskPriority,
-    approvalScope?: ApprovalScope
-  ) => Task[];
-
-  // Thao tác Thảo luận & Chat Realtime
-  addComment: (taskId: string, body: string) => void;
-  sendChatMessage: (body: string, replyTo?: string, mentions?: string[], richCard?: ChatRichCard) => void;
-
-  // Trợ giúp thống kê
-  getMyTasks: (memberId?: string) => {
-    overdue: Task[];
-    today: Task[];
-    thisWeek: Task[];
-    upcoming: Task[];
-    completed: Task[];
-  };
-  getCoordinatorData: () => {
-    overdueTasks: Array<Task & { daysOverdue: number }>;
-    dueIn48Hours: Task[];
-    waitingApproval: Task[];
-    workloadPerMember: Array<{ member: Member; total: number; overdue: number; waiting: number }>;
-    busyMembers: Member[];
-    tasksWithoutDueDate: Task[];
-    tasksWithoutOwner: Task[];
-    unassignedDocs: IncomingDocument[];
-  };
-  getReportData: (filterMonth?: number, filterYear?: number) => {
-    totalTasks: number;
-    totalCompleted: number;
-    beforeDeadline: number;
-    onTime: number;
-    afterDeadline: number;
-    averageScore: number;
-    gradeCounts: { A: number; B: number; C: number; D: number };
-    memberStats: Array<{
-      member: Member;
-      totalAssigned: number;
-      completedOnTime: number;
-      completedLate: number;
-      inProgress: number;
-      overdue: number;
-      averageScore: number;
-      gradeCounts: { A: number; B: number; C: number; D: number };
-      tasks: Task[];
-    }>;
-  };
-  updateMemberDelegation: (
-    memberId: string,
-    delegation: {
-      busy_from: string | null;
-      busy_to: string | null;
-      busy_reason: string | null;
-      delegate_to_id: string | null;
-    }
+  // Operations
+  submitProfileUpdateRequest: (
+    profileId: string,
+    proposedFields: Record<string, string>,
+    reason: string
+  ) => { success: boolean; message: string; requestId?: string };
+  approveProfileUpdateRequest: (
+    requestId: string,
+    reviewerComment?: string
+  ) => { success: boolean; message: string };
+  returnProfileUpdateRequest: (
+    requestId: string,
+    reason: string
+  ) => { success: boolean; message: string };
+  createDecision: (
+    decisionData: Omit<PersonnelDecision, 'id' | 'created_at' | 'created_by'>
+  ) => { success: boolean; message: string; errorLineIndex?: number };
+  submitSelfEvaluation: (
+    evaluationId: string,
+    taskResults: string,
+    limitations: string,
+    evidenceFiles: { name: string; size: string }[]
+  ) => { success: boolean; message: string };
+  reviewEvaluation: (
+    evaluationId: string,
+    proposedGrade: 'A' | 'B' | 'C' | 'D' | null,
+    unitComment: string,
+    approvedGrade: 'A' | 'B' | 'C' | 'D' | null,
+    adminComment: string,
+    action: 'approve' | 'return'
+  ) => { success: boolean; message: string };
+  publishEvaluationPeriod: (periodId: string) => { success: boolean; message: string };
+  reopenEvaluationPeriod: (periodId: string, reason: string) => { success: boolean; message: string };
+  createNotification: (
+    notif: Omit<NotificationItem, 'id' | 'created_at' | 'is_read' | 'read_by_user_ids'>
   ) => void;
+  markNotificationAsRead: (id: string) => void;
+  markAllNotificationsAsRead: () => void;
+  addUnit: (unit: Omit<Unit, 'id'>) => void;
+  addPosition: (pos: Omit<PositionDefinition, 'id'>) => void;
+  addProfile: (profile: Omit<OfficerProfile, 'id' | 'created_at' | 'updated_at' | 'version'>) => {
+    success: boolean;
+    message: string;
+  };
+  updateSystemConfig: (newConfig: Partial<SystemConfig>) => void;
+  getActiveRolesAtDate: (profileId: string, dateStr: string) => any[];
+  getUniqueOfficerCount: (unitId?: string, dateStr?: string) => number;
+  getTotalRoleCount: (unitId?: string, dateStr?: string) => number;
+  resetToDefaultSeed: () => void;
+  runTestScenario: (scenarioNumber: number) => {
+    title: string;
+    result: string;
+    success: boolean;
+    message: string;
+    details?: any;
+  };
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
-export function AppProvider({ children }: { children: React.ReactNode }) {
-  const [members, setMembers] = useState<Member[]>(() =>
-    getStoredItem('btv_members', INITIAL_MEMBERS, 'btv_deleted_member_ids')
-  );
-  const [currentMemberId, setCurrentMemberId] = useState<string>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('btv_current_member_id');
-      if (saved) return saved;
-    }
-    return '11111111-1111-1111-1111-111111111111';
-  });
-  const [tasks, setTasks] = useState<Task[]>(() =>
-    getStoredItem('btv_tasks', INITIAL_TASKS, 'btv_deleted_task_ids')
-  );
-  const [campaigns, setCampaigns] = useState<Campaign[]>(() =>
-    getStoredItem('btv_campaigns', INITIAL_CAMPAIGNS, 'btv_deleted_campaign_ids')
-  );
-  const [incomingDocs, setIncomingDocs] = useState<IncomingDocument[]>(() =>
-    getStoredItem('btv_docs', INITIAL_DOCUMENTS, 'btv_deleted_doc_ids')
-  );
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>(() =>
-    getStoredItem('btv_chat_messages', INITIAL_CHAT_MESSAGES)
-  );
-  const [notifications, setNotifications] = useState(INITIAL_NOTIFICATIONS);
-  const [activityLogs, setActivityLogs] = useState<ActivityLog[]>(() =>
-    getStoredItem('btv_activity_logs', [])
-  );
-  const [comments, setComments] = useState<TaskComment[]>(() =>
-    getStoredItem('btv_comments', [])
+const STORAGE_KEYS = {
+  PORTAL_MODE: 'qncb_portal_mode',
+  USER_TAB: 'qncb_user_tab',
+  ADMIN_TAB: 'qncb_admin_tab',
+  PROFILES: 'qncb_profiles_v1',
+  DECISIONS: 'qncb_decisions_v1',
+  REQUESTS: 'qncb_requests_v1',
+  PERIODS: 'qncb_periods_v1',
+  EVALUATIONS: 'qncb_evaluations_v1',
+  NOTIFICATIONS: 'qncb_notifications_v1',
+  AUDIT_LOGS: 'qncb_audit_logs_v1',
+  CONFIG: 'qncb_config_v1',
+  UNITS: 'qncb_units_v1',
+  POSITIONS: 'qncb_positions_v1',
+};
+
+export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [portalMode, setPortalModeState] = useState<'user' | 'admin'>('user');
+  const [userTab, setUserTabState] = useState<UserTab>('trang_chu');
+  const [adminTab, setAdminTabState] = useState<AdminTab>('tong_quan');
+  const [currentUser, setCurrentUser] = useState<AppUser>(DEFAULT_APP_USER);
+
+  // Master State
+  const [subsystems] = useState<SubsystemInfo[]>(INITIAL_SUBSYSTEMS);
+  const [units, setUnits] = useState<Unit[]>(INITIAL_UNITS);
+  const [positions, setPositions] = useState<PositionDefinition[]>(INITIAL_POSITIONS);
+  const [profiles, setProfiles] = useState<OfficerProfile[]>(INITIAL_PROFILES);
+  const [decisions, setDecisions] = useState<PersonnelDecision[]>(INITIAL_DECISIONS);
+  const [updateRequests, setUpdateRequests] = useState<ProfileUpdateRequest[]>(INITIAL_UPDATE_REQUESTS);
+  const [evaluationPeriods, setEvaluationPeriods] = useState<EvaluationPeriod[]>(INITIAL_EVALUATION_PERIODS);
+  const [evaluations, setEvaluations] = useState<MonthlyEvaluation[]>(INITIAL_EVALUATIONS);
+  const [notifications, setNotifications] = useState<NotificationItem[]>(INITIAL_NOTIFICATIONS);
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>(INITIAL_AUDIT_LOGS);
+  const [systemConfig, setSystemConfig] = useState<SystemConfig>(INITIAL_SYSTEM_CONFIG);
+  const [users, setUsers] = useState<AppUser[]>(INITIAL_USERS);
+
+  const roles = useMemo(
+    () =>
+      profiles.flatMap((p) =>
+        (p.roles || []).map((r) => ({
+          ...r,
+          officer_id: p.id,
+          officer_name: p.full_name,
+          student_id: p.student_id,
+          is_active: r.status === 'active',
+        }))
+      ),
+    [profiles]
   );
 
-  // Phiên làm việc & Bảo mật Auth Gate
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('btv_session_active') === 'true';
-    }
-    return false;
-  });
+  // Selection pointers
+  const [selectedProfileId, setSelectedProfileId] = useState<string | null>('prof_minh_anh');
+  const [selectedUnitId, setSelectedUnitId] = useState<string | null>('unit_clb_truyen_thong');
+  const [selectedDecisionId, setSelectedDecisionId] = useState<string | null>('dec_145');
+  const [selectedRequestId, setSelectedRequestId] = useState<string | null>('HS-0012');
+  const [selectedPeriodId, setSelectedPeriodId] = useState<string>('period_2026_10');
 
-  // Trạng thái Google Auth & Realtime
-  const [authUser, setAuthUser] = useState<any>(null);
-  const [isAuthLoading, setIsAuthLoading] = useState<boolean>(true);
-  const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
-  const [isSupabaseConnected, setIsSupabaseConnected] = useState<boolean>(isSupabaseConfigured);
-  const [isRealtimeLive, setIsRealtimeLive] = useState<boolean>(false);
-
-  // Weekly Check-in (Nhiệt kế Tinh thần BTV)
-  const [weeklyCheckins, setWeeklyCheckins] = useState<WeeklyCheckin[]>(() =>
-    getStoredItem('btv_weekly_checkins', INITIAL_WEEKLY_CHECKINS)
-  );
-  const [isWeeklyCheckinModalOpen, setIsWeeklyCheckinModalOpen] = useState<boolean>(false);
-
-  // Quản lý Phân quyền (Role-Based Access Control - RBAC)
-  const [rolePermissions, setRolePermissions] = useState<RolePermissionsMap>(() =>
-    getStoredItem('btv_role_permissions', DEFAULT_ROLE_PERMISSIONS)
-  );
-
-  // Modal Thay đổi Avatar
-  const [isAvatarModalOpen, setIsAvatarModalOpen] = useState<boolean>(false);
-  const [avatarModalTargetMember, setAvatarModalTargetMember] = useState<Member | null>(null);
-
-  // Trình xem PDF Scan Công văn (PdfViewerModal)
-  const [selectedPdfUrl, setSelectedPdfUrl] = useState<string | null>(null);
-  const [selectedPdfTitle, setSelectedPdfTitle] = useState<string | null>(null);
-  const [selectedPdfDoc, setSelectedPdfDoc] = useState<IncomingDocument | null>(null);
-  const [isPdfModalOpen, setIsPdfModalOpen] = useState<boolean>(false);
-
-  // Điều hướng & Modals
-  const [activeTab, setActiveTab] = useState<string>('trang_chu');
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
-  const [isCreateTaskModalOpen, setIsCreateTaskModalOpen] = useState<boolean>(false);
-  const [isCreateDocModalOpen, setIsCreateDocModalOpen] = useState<boolean>(false);
-  const [isCreateCampaignModalOpen, setIsCreateCampaignModalOpen] = useState<boolean>(false);
-  const [isMounted, setIsMounted] = useState<boolean>(false);
-
-  // Lưu trữ tham chiếu mới nhất cho WebSocket Realtime Handlers (tránh closure stale)
-  const currentMemberIdRef = React.useRef(currentMemberId);
+  // Load persisted state on mount
   useEffect(() => {
-    currentMemberIdRef.current = currentMemberId;
-  }, [currentMemberId]);
-
-  const membersRef = React.useRef(members);
-  useEffect(() => {
-    membersRef.current = members;
-  }, [members]);
-
-  // ----------------------------------------------------------------------------
-  // 1. TẢI DỮ LIỆU TỪ SUPABASE
-  // ----------------------------------------------------------------------------
-  const refreshDataFromSupabase = useCallback(async () => {
-    if (!isSupabaseConfigured) return;
-
+    if (typeof window === 'undefined') return;
     try {
-      await seedSupabaseIfEmpty();
+      const savedMode = localStorage.getItem(STORAGE_KEYS.PORTAL_MODE);
+      if (savedMode === 'user' || savedMode === 'admin') setPortalModeState(savedMode);
 
-      const [dbTasks, dbChat, dbDocs, dbComments, dbLogs, dbMembers, dbCampaigns, dbRolePerms] = await Promise.all([
-        fetchTasksFromSupabase(),
-        fetchChatMessagesFromSupabase(),
-        fetchIncomingDocsFromSupabase(),
-        fetchCommentsFromSupabase(),
-        fetchActivityLogsFromSupabase(),
-        fetchMembersFromSupabase(),
-        fetchCampaignsFromSupabase(),
-        fetchRolePermissionsFromSupabase(),
-      ]);
+      const savedUserTab = localStorage.getItem(STORAGE_KEYS.USER_TAB);
+      if (savedUserTab) setUserTabState(savedUserTab as UserTab);
 
-      const deletedMemberIds = getDeletedIdSet('btv_deleted_member_ids');
-      const deletedTaskIds = getDeletedIdSet('btv_deleted_task_ids');
-      const deletedCampaignIds = getDeletedIdSet('btv_deleted_campaign_ids');
-      const deletedDocIds = getDeletedIdSet('btv_deleted_doc_ids');
+      const savedAdminTab = localStorage.getItem(STORAGE_KEYS.ADMIN_TAB);
+      if (savedAdminTab) setAdminTabState(savedAdminTab as AdminTab);
 
-      // Thu thập dữ liệu local storage hiện tại để ưu tiên giữ nguyên các cập nhật của người dùng
-      let localTasks: Task[] = [];
-      let localMembers: Member[] = [];
-      let localDocs: IncomingDocument[] = [];
-      let localCampaigns: Campaign[] = [];
+      const savedProfiles = localStorage.getItem(STORAGE_KEYS.PROFILES);
+      if (savedProfiles) setProfiles(JSON.parse(savedProfiles));
 
-      if (typeof window !== 'undefined') {
-        try {
-          const t = localStorage.getItem('btv_tasks');
-          if (t) localTasks = JSON.parse(t);
-          const m = localStorage.getItem('btv_members');
-          if (m) localMembers = JSON.parse(m);
-          const d = localStorage.getItem('btv_docs');
-          if (d) localDocs = JSON.parse(d);
-          const c = localStorage.getItem('btv_campaigns');
-          if (c) localCampaigns = JSON.parse(c);
-        } catch (e) {}
-      }
+      const savedDecisions = localStorage.getItem(STORAGE_KEYS.DECISIONS);
+      if (savedDecisions) setDecisions(JSON.parse(savedDecisions));
 
-      // 1. Tasks
-      if (dbTasks !== null) {
-        const filteredDbTasks = dbTasks.filter((t) => !deletedTaskIds.has(t.id) && !isMockId(t.id));
-        const filteredLocalTasks = localTasks.filter((t) => !deletedTaskIds.has(t.id) && !isMockId(t.id));
-        if (filteredLocalTasks.length > 0) {
-          const taskMap = new Map<string, Task>();
-          filteredDbTasks.forEach((t) => taskMap.set(t.id, t));
-          filteredLocalTasks.forEach((t) => {
-            const existing = taskMap.get(t.id);
-            taskMap.set(t.id, existing ? { ...existing, ...t } : t);
-          });
-          const merged = Array.from(taskMap.values());
-          setTasks(merged);
-          if (typeof window !== 'undefined') {
-            localStorage.setItem('btv_tasks', JSON.stringify(merged));
-          }
-        } else {
-          setTasks(filteredDbTasks);
-          if (typeof window !== 'undefined') {
-            localStorage.setItem('btv_tasks', JSON.stringify(filteredDbTasks));
-          }
-        }
-      }
+      const savedRequests = localStorage.getItem(STORAGE_KEYS.REQUESTS);
+      if (savedRequests) setUpdateRequests(JSON.parse(savedRequests));
 
-      // 2. Chat
-      if (dbChat !== null) {
-        const cleanChat = dbChat.filter((m) => !isMockId(m.id));
-        setChatMessages(cleanChat);
-        if (typeof window !== 'undefined') {
-          localStorage.setItem('btv_chat_messages', JSON.stringify(cleanChat));
-        }
-      }
+      const savedEvaluations = localStorage.getItem(STORAGE_KEYS.EVALUATIONS);
+      if (savedEvaluations) setEvaluations(JSON.parse(savedEvaluations));
 
-      // 3. Docs
-      if (dbDocs !== null) {
-        const filteredDbDocs = dbDocs.filter((d) => !deletedDocIds.has(d.id) && !isMockId(d.id));
-        const filteredLocalDocs = localDocs.filter((d) => !deletedDocIds.has(d.id) && !isMockId(d.id));
-        if (filteredLocalDocs.length > 0) {
-          const docMap = new Map<string, IncomingDocument>();
-          filteredDbDocs.forEach((d) => docMap.set(d.id, d));
-          filteredLocalDocs.forEach((d) => {
-            const existing = docMap.get(d.id);
-            docMap.set(d.id, existing ? { ...existing, ...d } : d);
-          });
-          const merged = Array.from(docMap.values());
-          setIncomingDocs(merged);
-          if (typeof window !== 'undefined') {
-            localStorage.setItem('btv_docs', JSON.stringify(merged));
-          }
-        } else {
-          setIncomingDocs(filteredDbDocs);
-          if (typeof window !== 'undefined') {
-            localStorage.setItem('btv_docs', JSON.stringify(filteredDbDocs));
-          }
-        }
-      }
+      const savedNotifications = localStorage.getItem(STORAGE_KEYS.NOTIFICATIONS);
+      if (savedNotifications) setNotifications(JSON.parse(savedNotifications));
 
-      // 4. Comments & Logs
-      if (dbComments !== null) {
-        setComments(dbComments);
-        if (typeof window !== 'undefined') {
-          localStorage.setItem('btv_comments', JSON.stringify(dbComments));
-        }
-      }
-      if (dbLogs !== null) {
-        setActivityLogs(dbLogs);
-        if (typeof window !== 'undefined') {
-          localStorage.setItem('btv_activity_logs', JSON.stringify(dbLogs));
-        }
-      }
-
-      // 5. Members (Hợp nhất bảo đảm không bao giờ phục sinh thành viên đã bị xóa)
-      if (dbMembers && dbMembers.length > 0) {
-        const memberMap = new Map<string, Member>();
-        dbMembers.forEach((m) => {
-          if (!deletedMemberIds.has(m.id)) {
-            memberMap.set(m.id, m);
-          }
-        });
-        localMembers.forEach((m) => {
-          if (!deletedMemberIds.has(m.id)) {
-            const existing = memberMap.get(m.id);
-            if (existing) {
-              memberMap.set(m.id, { ...existing, ...m });
-            } else {
-              memberMap.set(m.id, m);
-            }
-          }
-        });
-        const mergedMembers = Array.from(memberMap.values());
-        if (mergedMembers.length > 0) {
-          setMembers(mergedMembers);
-          if (typeof window !== 'undefined') {
-            localStorage.setItem('btv_members', JSON.stringify(mergedMembers));
-          }
-        }
-      }
-
-      // 6. Campaigns
-      if (dbCampaigns !== null) {
-        const filteredDbCampaigns = dbCampaigns.filter((c) => !deletedCampaignIds.has(c.id) && !isMockId(c.id));
-        const filteredLocalCampaigns = localCampaigns.filter((c) => !deletedCampaignIds.has(c.id) && !isMockId(c.id));
-        if (filteredLocalCampaigns.length > 0) {
-          const cMap = new Map<string, Campaign>();
-          filteredDbCampaigns.forEach((c) => cMap.set(c.id, c));
-          filteredLocalCampaigns.forEach((c) => {
-            const existing = cMap.get(c.id);
-            cMap.set(c.id, existing ? { ...existing, ...c } : c);
-          });
-          const merged = Array.from(cMap.values());
-          setCampaigns(merged);
-          if (typeof window !== 'undefined') {
-            localStorage.setItem('btv_campaigns', JSON.stringify(merged));
-          }
-        } else {
-          setCampaigns(filteredDbCampaigns);
-          if (typeof window !== 'undefined') {
-            localStorage.setItem('btv_campaigns', JSON.stringify(filteredDbCampaigns));
-          }
-        }
-      }
-
-      // 7. Ma trận Phân quyền từ Supabase
-      if (dbRolePerms && typeof dbRolePerms === 'object' && Object.keys(dbRolePerms).length > 0) {
-        setRolePermissions((prev) => {
-          const merged = { ...DEFAULT_ROLE_PERMISSIONS, ...dbRolePerms, ...prev };
-          if (typeof window !== 'undefined') {
-            localStorage.setItem('btv_role_permissions', JSON.stringify(merged));
-          }
-          return merged;
-        });
-      }
-
-      setIsSupabaseConnected(true);
+      const savedAuditLogs = localStorage.getItem(STORAGE_KEYS.AUDIT_LOGS);
+      if (savedAuditLogs) setAuditLogs(JSON.parse(savedAuditLogs));
     } catch (e) {
-      console.warn('Không thể đồng bộ Supabase ban đầu, dùng Local cache:', e);
+      console.warn('Could not parse persisted state:', e);
     }
   }, []);
 
-  // ----------------------------------------------------------------------------
-  // 2. KHỞI TẠO SESSION GOOGLE AUTH, LOCAL STORAGE & REALTIME WEBSOCKET
-  // ----------------------------------------------------------------------------
-  useEffect(() => {
-    setIsMounted(true);
-    refreshDataFromSupabase();
+  // Save changes to localStorage
+  const setPortalMode = useCallback((mode: 'user' | 'admin') => {
+    setPortalModeState(mode);
+    if (typeof window !== 'undefined') localStorage.setItem(STORAGE_KEYS.PORTAL_MODE, mode);
+  }, []);
 
-    // Tự động đăng ký Service Worker để thiết bị PWA & Mobile sẵn sàng nhận thông báo
-    registerServiceWorker();
-
-    if (supabase && isSupabaseConfigured) {
-      supabase.auth.getSession().then(({ data: { session } }) => {
-        if (session?.user) {
-          setAuthUser(session.user);
-          setIsAuthenticated(true);
-          if (typeof window !== 'undefined') {
-            localStorage.setItem('btv_session_active', 'true');
-          }
-          if (session.user.email) {
-            const userEmail = session.user.email.toLowerCase();
-            const savedM = typeof window !== 'undefined' ? localStorage.getItem('btv_members') : null;
-            const currentMembersList: Member[] = savedM ? JSON.parse(savedM) : INITIAL_MEMBERS;
-            const matched = currentMembersList.find((m) => m.email.toLowerCase() === userEmail);
-            if (matched) {
-              setCurrentMemberId(matched.id);
-            }
-          }
-        }
-        setIsAuthLoading(false);
-      });
-
-      const {
-        data: { subscription },
-      } = supabase.auth.onAuthStateChange((_event, session) => {
-        if (session?.user) {
-          setAuthUser(session.user);
-          setIsAuthenticated(true);
-          if (typeof window !== 'undefined') {
-            localStorage.setItem('btv_session_active', 'true');
-          }
-          if (session.user.email) {
-            const userEmail = session.user.email.toLowerCase();
-            const savedM = typeof window !== 'undefined' ? localStorage.getItem('btv_members') : null;
-            const currentMembersList: Member[] = savedM ? JSON.parse(savedM) : INITIAL_MEMBERS;
-            const matched = currentMembersList.find((m) => m.email.toLowerCase() === userEmail);
-            if (matched) {
-              setCurrentMemberId(matched.id);
-            }
-          }
-        } else {
-          setAuthUser(null);
-        }
-        setIsAuthLoading(false);
-      });
-
-      const unsubscribeRealtime = subscribeToBTVRealtime({
-        // 1. NHIỆM VỤ GIAO VIỆC MỚI
-        onTaskInsert: (newTask) => {
-          setTasks((prev) => {
-            if (prev.some((t) => t.id === newTask.id)) return prev;
-            return [newTask, ...prev];
-          });
-
-          // Gửi thông báo đến thiết bị nếu người dùng là người nhận hoặc cộng tác viên
-          const myId = currentMemberIdRef.current;
-          const isRecipient =
-            newTask.owner_id === myId ||
-            (newTask.collaborator_ids && newTask.collaborator_ids.includes(myId));
-
-          if (isRecipient && newTask.created_by !== myId) {
-            const creator = membersRef.current.find((m) => m.id === newTask.created_by);
-            const creatorName = creator?.full_name || 'Thường trực Đoàn';
-
-            setNotifications((prev) => [
-              {
-                id: 'notif-task-' + newTask.id + '-' + Date.now(),
-                title: `Nhiệm vụ mới: ${newTask.title}`,
-                time: 'Vừa xong',
-                icon: 'briefcase',
-                unread: true,
-              },
-              ...prev,
-            ]);
-
-            sendMobileNotification({
-              title: `📋 Bạn có nhiệm vụ mới: ${newTask.title}`,
-              body: `Đ/c ${creatorName} đã giao việc cho bạn. Hạn chót: ${newTask.due_at ? newTask.due_at.slice(0, 10) : 'Không có'}`,
-              tag: `task-${newTask.id}`,
-              url: '/?tab=cong_viec',
-            });
-          }
-        },
-        onTaskUpdate: (updatedTask) => {
-          setTasks((prev) =>
-            prev.map((t) => (t.id === updatedTask.id ? { ...t, ...updatedTask } : t))
-          );
-        },
-        onTaskDelete: (taskId) => {
-          setTasks((prev) => prev.filter((t) => t.id !== taskId));
-        },
-
-        // 2. TIN NHẮN NHÓM CHAT MỚI
-        onChatInsert: (newMsg) => {
-          setChatMessages((prev) => {
-            if (prev.some((m) => m.id === newMsg.id)) return prev;
-            return [...prev, newMsg];
-          });
-
-          // Gửi thông báo đến điện thoại nếu tin nhắn do thành viên khác gửi
-          if (newMsg.member_id !== currentMemberIdRef.current) {
-            const sender = membersRef.current.find((m) => m.id === newMsg.member_id);
-            const senderName = sender?.full_name || 'Đồng chí BTV';
-
-            setNotifications((prev) => [
-              {
-                id: 'notif-chat-' + newMsg.id + '-' + Date.now(),
-                title: `Tin nhắn từ ${senderName}`,
-                time: 'Vừa xong',
-                icon: 'message-circle',
-                unread: true,
-              },
-              ...prev,
-            ]);
-
-            sendMobileNotification({
-              title: `💬 ${senderName} (BTV Đoàn trường)`,
-              body: newMsg.body || 'Đã gửi một tin nhắn mới trong nhóm chat BTV',
-              tag: `chat-${newMsg.id}`,
-              url: '/?tab=chat',
-            });
-          }
-        },
-
-        // 3. BÌNH LUẬN TRONG CÔNG VIỆC
-        onCommentInsert: (newComment) => {
-          setComments((prev) => {
-            if (prev.some((c) => c.id === newComment.id)) return prev;
-            return [...prev, newComment];
-          });
-          setTasks((prev) =>
-            prev.map((t) =>
-              t.id === newComment.task_id
-                ? { ...t, comments_count: (t.comments_count || 0) + 1 }
-                : t
-            )
-          );
-        },
-
-        // 4. CÔNG VĂN / VĂN BẢN ĐẾN MỚI
-        onDocInsert: (newDoc) => {
-          setIncomingDocs((prev) => {
-            if (prev.some((d) => d.id === newDoc.id)) return prev;
-            return [newDoc, ...prev];
-          });
-
-          // Gửi thông báo chuông & rung nếu văn bản được tiếp nhận từ tài khoản khác
-          if (newDoc.created_by !== currentMemberIdRef.current) {
-            const docNum = newDoc.so_ky_hieu ? `Số ${newDoc.so_ky_hieu}` : 'Văn bản đến mới';
-            const fromOrg = newDoc.don_vi_gui ? `từ ${newDoc.don_vi_gui}` : '';
-
-            setNotifications((prev) => [
-              {
-                id: 'notif-doc-' + newDoc.id + '-' + Date.now(),
-                title: `Công văn: ${docNum} ${fromOrg}`,
-                time: 'Vừa xong',
-                icon: 'file-text',
-                unread: true,
-              },
-              ...prev,
-            ]);
-
-            sendMobileNotification({
-              title: `📄 Công văn mới: ${newDoc.so_ky_hieu || 'Văn bản đến'}`,
-              body: `${fromOrg ? fromOrg + ': ' : ''}${newDoc.noi_dung || 'Có công văn mới cần rà soát và xử lý.'}`,
-              tag: `doc-${newDoc.id}`,
-              url: '/?tab=van_ban_den',
-            });
-          }
-        },
-        onDocUpdate: (updatedDoc) => {
-          setIncomingDocs((prev) =>
-            prev.map((d) => (d.id === updatedDoc.id ? { ...d, ...updatedDoc } : d))
-          );
-        },
-        onDocDelete: (docId) => {
-          setIncomingDocs((prev) => prev.filter((d) => d.id !== docId));
-        },
-
-        // 5. HOẠT ĐỘNG / CHIẾN DỊCH / SỰ KIỆN MỚI
-        onCampaignInsert: (newCamp) => {
-          setCampaigns((prev) => {
-            if (prev.some((c) => c.id === newCamp.id)) return prev;
-            return [newCamp, ...prev];
-          });
-
-          // Gửi thông báo chuông & rung nếu sự kiện do người khác khởi tạo
-          if (newCamp.created_by !== currentMemberIdRef.current) {
-            setNotifications((prev) => [
-              {
-                id: 'notif-camp-' + newCamp.id + '-' + Date.now(),
-                title: `Sự kiện mới: ${newCamp.name}`,
-                time: 'Vừa xong',
-                icon: 'flag',
-                unread: true,
-              },
-              ...prev,
-            ]);
-
-            sendMobileNotification({
-              title: `🚩 Sự kiện mới: ${newCamp.name}`,
-              body: newCamp.description || 'Chiến dịch / Hoạt động mới đã được khởi tạo trong Ban Thường vụ.',
-              tag: `camp-${newCamp.id}`,
-              url: '/?tab=du_an',
-            });
-          }
-        },
-        onCampaignUpdate: (updatedCamp) => {
-          setCampaigns((prev) =>
-            prev.map((c) => (c.id === updatedCamp.id ? { ...c, ...updatedCamp } : c))
-          );
-        },
-        onCampaignDelete: (campId) => {
-          setCampaigns((prev) => prev.filter((c) => c.id !== campId));
-        },
-
-        // 6. NHẬT KÝ HOẠT ĐỘNG
-        onLogInsert: (newLog) => {
-          setActivityLogs((prev) => [newLog, ...prev]);
-        },
-
-        // 7. TRẠNG THÁI REALTIME
-        onStatusChange: (status) => {
-          setIsRealtimeLive(status === 'SUBSCRIBED');
-        },
-      });
-
-      return () => {
-        subscription.unsubscribe();
-        unsubscribeRealtime();
-      };
-    } else {
-      setIsAuthLoading(false);
-    }
-  }, [refreshDataFromSupabase]);
-
-  // Tự động sao lưu dữ liệu toàn bộ hệ thống vào LocalStorage (Bảo đảm lưu vĩnh viễn)
-  useEffect(() => {
-    if (isMounted && typeof window !== 'undefined') {
-      localStorage.setItem('btv_tasks', JSON.stringify(tasks));
-    }
-  }, [tasks, isMounted]);
-
-  useEffect(() => {
-    if (isMounted && typeof window !== 'undefined') {
-      localStorage.setItem('btv_docs', JSON.stringify(incomingDocs));
-    }
-  }, [incomingDocs, isMounted]);
-
-  useEffect(() => {
-    if (isMounted && typeof window !== 'undefined') {
-      localStorage.setItem('btv_members', JSON.stringify(members));
-    }
-  }, [members, isMounted]);
-
-  useEffect(() => {
-    if (isMounted && typeof window !== 'undefined') {
-      localStorage.setItem('btv_campaigns', JSON.stringify(campaigns));
-    }
-  }, [campaigns, isMounted]);
-
-  useEffect(() => {
-    if (isMounted && typeof window !== 'undefined') {
-      localStorage.setItem('btv_chat_messages', JSON.stringify(chatMessages));
-    }
-  }, [chatMessages, isMounted]);
-
-  useEffect(() => {
-    if (isMounted && typeof window !== 'undefined') {
-      localStorage.setItem('btv_comments', JSON.stringify(comments));
-    }
-  }, [comments, isMounted]);
-
-  useEffect(() => {
-    if (isMounted && typeof window !== 'undefined') {
-      localStorage.setItem('btv_activity_logs', JSON.stringify(activityLogs));
-    }
-  }, [activityLogs, isMounted]);
-
-  useEffect(() => {
-    if (isMounted && typeof window !== 'undefined') {
-      localStorage.setItem('btv_role_permissions', JSON.stringify(rolePermissions));
-    }
-  }, [rolePermissions, isMounted]);
-
-  useEffect(() => {
-    if (isMounted && typeof window !== 'undefined') {
-      localStorage.setItem('btv_weekly_checkins', JSON.stringify(weeklyCheckins));
-    }
-  }, [weeklyCheckins, isMounted]);
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('btv_current_member_id', currentMemberId);
-    }
-  }, [currentMemberId]);
-
-  const currentMember = members.find((m) => m.id === currentMemberId) || members[0];
-
-  // ----------------------------------------------------------------------------
-  // 3. THAO TÁC GOOGLE AUTH & AUTH GATE & TIỆN ÍCH HỆ THỐNG
-  // ----------------------------------------------------------------------------
-  const signInWithGoogle = async () => {
-    const res = await signInWithGoogleOAuth();
-    if (!res.error) {
-      setIsAuthenticated(true);
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('btv_session_active', 'true');
-      }
-    }
-    return res;
-  };
-
-  const signOut = async () => {
-    setIsAuthenticated(false);
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('btv_session_active');
-    }
-    await signOutSupabase();
-    setAuthUser(null);
-  };
-
-  // PHÂN LUỒNG ĐĂNG NHẬP THÔNG MINH THEO VAI TRÒ & THẨM QUYỀN
-  const loginAsMember = (memberId: string) => {
-    const member = members.find((m) => m.id === memberId);
-    setCurrentMemberId(memberId);
-    setIsAuthenticated(true);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('btv_session_active', 'true');
-      localStorage.setItem('btv_current_member_id', memberId);
-    }
-
-    // Phân luồng trang đích phù hợp:
-    if (member) {
-      if (member.role === 'bi_thu' || member.role === 'pho_bi_thu') {
-        setActiveTab('trang_chu');
-      } else if (member.role === 'chanh_van_phong') {
-        setActiveTab('van_ban_den');
-      } else {
-        // Ủy viên BTV: điều hướng đến Việc của tôi để xử lý ngay công việc được phân công
-        setActiveTab('viec_cua_toi');
-      }
-    }
-  };
-
-  const logout = async () => {
-    await signOut();
-  };
-
-  // ----------------------------------------------------------------------------
-  // QUẢN LÝ PHÂN QUYỀN (ROLE-BASED ACCESS CONTROL - RBAC)
-  // ----------------------------------------------------------------------------
-  const updateRolePermissions = (role: MemberRole, permissions: PermissionKey[]) => {
-    setRolePermissions((prev) => {
-      const updated = {
-        ...prev,
-        [role]: permissions,
-      };
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('btv_role_permissions', JSON.stringify(updated));
-      }
-      syncRolePermissionsToSupabase(updated);
-      return updated;
+  const togglePortalMode = useCallback(() => {
+    setPortalModeState((prev) => {
+      const next = prev === 'user' ? 'admin' : 'user';
+      if (typeof window !== 'undefined') localStorage.setItem(STORAGE_KEYS.PORTAL_MODE, next);
+      return next;
     });
-  };
+  }, []);
 
-  const updateMemberCustomPermissions = (memberId: string, permissions?: PermissionKey[]) => {
-    setMembers((prev) => {
-      const updated = prev.map((m) =>
-        m.id === memberId
-          ? {
-              ...m,
-              custom_permissions: permissions && permissions.length > 0 ? permissions : undefined,
-            }
-          : m
-      );
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('btv_members', JSON.stringify(updated));
-      }
-      return updated;
-    });
-    updateMemberOnSupabase(memberId, { custom_permissions: permissions });
-  };
+  const setUserTab = useCallback((tab: UserTab) => {
+    setUserTabState(tab);
+    if (typeof window !== 'undefined') localStorage.setItem(STORAGE_KEYS.USER_TAB, tab);
+  }, []);
 
-  const resetRolePermissionsToDefault = () => {
-    setRolePermissions(DEFAULT_ROLE_PERMISSIONS);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('btv_role_permissions', JSON.stringify(DEFAULT_ROLE_PERMISSIONS));
-    }
-    syncRolePermissionsToSupabase(DEFAULT_ROLE_PERMISSIONS);
-  };
+  const setAdminTab = useCallback((tab: AdminTab) => {
+    setAdminTabState(tab);
+    if (typeof window !== 'undefined') localStorage.setItem(STORAGE_KEYS.ADMIN_TAB, tab);
+  }, []);
 
+  const switchUserRole = useCallback((role: UserRole) => {
+    setCurrentUser((prev) => ({
+      ...prev,
+      current_role: role,
+    }));
+  }, []);
+
+  const updateUserScope = useCallback((scopeId: string, scopeName: string) => {
+    setCurrentUser((prev) => ({
+      ...prev,
+      scope_unit_id: scopeId,
+      scope_unit_name: scopeName,
+    }));
+  }, []);
+
+  // Check user permission
   const hasPermission = useCallback(
-    (permKey: PermissionKey, targetMember?: Member): boolean => {
-      const m = targetMember || currentMember;
-      if (!m) return false;
-      // Bí thư Đoàn trường luôn có toàn quyền tuyệt đối theo Quy chế
-      if (m.role === 'bi_thu') return true;
-
-      // Ưu tiên phân quyền tùy chỉnh riêng cho cá nhân nếu có (đã gán mảng quyền riêng)
-      if (m.custom_permissions && Array.isArray(m.custom_permissions) && m.custom_permissions.length > 0) {
-        return m.custom_permissions.includes(permKey);
+    (action: string) => {
+      const role = currentUser.current_role;
+      if (role === 'admin') return true;
+      if (role === 'lanh_dao') {
+        return action.startsWith('view_') || action === 'export_report';
       }
-
-      // Kiểm tra ma trận quyền hạn theo vai trò
-      const perms = rolePermissions[m.role] || DEFAULT_ROLE_PERMISSIONS[m.role] || [];
-      return perms.includes(permKey);
+      if (role === 'nguoi_duyet') {
+        return (
+          action.startsWith('view_') ||
+          action.includes('approve') ||
+          action.includes('review')
+        );
+      }
+      if (role === 'quan_ly_don_vi') {
+        return (
+          action.startsWith('view_') ||
+          action === 'propose_decision' ||
+          action === 'evaluate_unit'
+        );
+      }
+      // can_bo_ca_nhan
+      return action === 'view_own' || action === 'submit_update' || action === 'self_evaluate';
     },
-    [currentMember, rolePermissions]
+    [currentUser.current_role]
   );
 
-  // ----------------------------------------------------------------------------
-  // QUẢN LÝ THAY ĐỔI AVATAR (AVATAR MODAL & PERSISTENCE)
-  // ----------------------------------------------------------------------------
-  const openAvatarModal = (member?: Member) => {
-    setAvatarModalTargetMember(member || currentMember);
-    setIsAvatarModalOpen(true);
-  };
-
-  const closeAvatarModal = () => {
-    setIsAvatarModalOpen(false);
-    setAvatarModalTargetMember(null);
-  };
-
-  const updateMemberAvatar = (memberId: string, newAvatarUrl: string) => {
-    setMembers((prev) => {
-      const updated = prev.map((m) =>
-        m.id === memberId ? { ...m, avatar_url: newAvatarUrl } : m
-      );
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('btv_members', JSON.stringify(updated));
+  // Helper: add audit log
+  const logActivity = useCallback(
+    (
+      actionType: AuditLog['action_type'],
+      actionLabel: string,
+      targetId: string,
+      targetName: string,
+      targetType: string,
+      details: string,
+      opts?: {
+        result?: 'Thành công' | 'Thất bại';
+        version_from?: string;
+        version_to?: string;
+        field_changes?: { field_name: string; old_value: string; new_value: string }[];
+        notes?: string;
       }
-      return updated;
-    });
+    ) => {
+      const now = new Date();
+      const pad = (n: number) => n.toString().padStart(2, '0');
+      const timeStr = `${pad(now.getDate())}/${pad(now.getMonth() + 1)}/${now.getFullYear()} ${pad(
+        now.getHours()
+      )}:${pad(now.getMinutes())}`;
 
-    updateMemberOnSupabase(memberId, { avatar_url: newAvatarUrl });
-  };
+      const newLog: AuditLog = {
+        id: 'log_' + Date.now(),
+        timestamp: timeStr,
+        user_id: currentUser.id,
+        user_name: currentUser.full_name,
+        user_mssv: currentUser.student_id,
+        action_type: actionType,
+        action_label: actionLabel,
+        target_id: targetId,
+        target_name: targetName,
+        target_type: targetType,
+        result: opts?.result || 'Thành công',
+        details,
+        version_from: opts?.version_from,
+        version_to: opts?.version_to,
+        field_changes: opts?.field_changes,
+        notes: opts?.notes,
+      };
 
-  // Check-in Tuần (Nhiệt kế Tinh thần)
-  const addWeeklyCheckin = (checkin: Omit<WeeklyCheckin, 'id' | 'created_at'>): WeeklyCheckin => {
-    const newCheckin: WeeklyCheckin = {
-      ...checkin,
-      id: generateUUID(),
-      created_at: new Date().toISOString(),
-    };
-    setWeeklyCheckins((prev) => {
-      const updated = [newCheckin, ...prev];
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('btv_weekly_checkins', JSON.stringify(updated));
-      }
-      return updated;
-    });
-    return newCheckin;
-  };
-
-  // Trình xem PDF Scan Công văn
-  const openPdfViewer = (url: string, title?: string, doc?: IncomingDocument) => {
-    setSelectedPdfUrl(url);
-    setSelectedPdfTitle(title || doc?.so_ky_hieu || 'Văn bản Scan');
-    setSelectedPdfDoc(doc || null);
-    setIsPdfModalOpen(true);
-  };
-
-  const closePdfViewer = () => {
-    setIsPdfModalOpen(false);
-    setSelectedPdfUrl(null);
-    setSelectedPdfTitle(null);
-    setSelectedPdfDoc(null);
-  };
-
-  // Cập nhật ủy quyền và bàn giao tạm thời cho BTV
-  const updateMemberDelegation = (
-    memberId: string,
-    delegation: {
-      busy_from: string | null;
-      busy_to: string | null;
-      busy_reason: string | null;
-      delegate_to_id: string | null;
-    }
-  ) => {
-    setMembers((prev) => {
-      const updated = prev.map((m) =>
-        m.id === memberId
-          ? {
-              ...m,
-              ...delegation,
-            }
-          : m
-      );
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('btv_members', JSON.stringify(updated));
-      }
-      return updated;
-    });
-  };
-
-  // ----------------------------------------------------------------------------
-  // 4. QUẢN TRỊ THÀNH VIÊN (ADMIN CRUD)
-  // ----------------------------------------------------------------------------
-  const addMember = (memberData: Partial<Member>): Member => {
-    const newMember: Member = {
-      id: generateUUID(),
-      email: memberData.email || `btv_${Date.now()}@hcmute.edu.vn`,
-      full_name: memberData.full_name || 'Đồng chí BTV',
-      role: memberData.role || 'uy_vien',
-      mang_phu_trach: memberData.mang_phu_trach || 'van_phong',
-      phone: memberData.phone || '0901234567',
-      avatar_url: memberData.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150',
-      active: memberData.active ?? true,
-      alias: memberData.alias || [memberData.full_name || 'Đ/c mới'],
-      created_at: new Date().toISOString(),
-    };
-
-    setMembers((prev) => {
-      const updated = [...prev, newMember];
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('btv_members', JSON.stringify(updated));
-      }
-      return updated;
-    });
-    insertMemberToSupabase(newMember);
-    return newMember;
-  };
-
-  const updateMember = (memberId: string, updates: Partial<Member>) => {
-    setMembers((prev) => {
-      const updated = prev.map((m) => (m.id === memberId ? { ...m, ...updates } : m));
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('btv_members', JSON.stringify(updated));
-      }
-      return updated;
-    });
-    updateMemberOnSupabase(memberId, updates);
-  };
-
-  const deleteMember = (memberId: string) => {
-    addDeletedId('btv_deleted_member_ids', memberId);
-    setMembers((prev) => {
-      const updated = prev.filter((m) => m.id !== memberId);
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('btv_members', JSON.stringify(updated));
-      }
-      return updated;
-    });
-    deleteMemberFromSupabase(memberId);
-  };
-
-  // ----------------------------------------------------------------------------
-  // 5. QUẢN TRỊ MẢNG VIỆC / CHIẾN DỊCH (CAMPAIGNS CRUD)
-  // ----------------------------------------------------------------------------
-  const addCampaign = (campData: Partial<Campaign>): Campaign => {
-    const newCamp: Campaign = {
-      id: generateUUID(),
-      name: campData.name || 'Mảng việc mới',
-      description: campData.description || '',
-      start_date: campData.start_date || new Date().toISOString().split('T')[0],
-      end_date: campData.end_date || '',
-      status: campData.status || 'dang_chay',
-      color: campData.color || '#0284c7',
-      created_by: currentMember.id,
-      created_at: new Date().toISOString(),
-    };
-
-    setCampaigns((prev) => {
-      const updated = [newCamp, ...prev];
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('btv_campaigns', JSON.stringify(updated));
-      }
-      return updated;
-    });
-    insertCampaignToSupabase(newCamp);
-    return newCamp;
-  };
-
-  const updateCampaign = (campId: string, updates: Partial<Campaign>) => {
-    setCampaigns((prev) => {
-      const updated = prev.map((c) => (c.id === campId ? { ...c, ...updates } : c));
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('btv_campaigns', JSON.stringify(updated));
-      }
-      return updated;
-    });
-    updateCampaignOnSupabase(campId, updates);
-  };
-
-  const deleteCampaign = (campId: string) => {
-    addDeletedId('btv_deleted_campaign_ids', campId);
-    setCampaigns((prev) => {
-      const updated = prev.filter((c) => c.id !== campId);
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('btv_campaigns', JSON.stringify(updated));
-      }
-      return updated;
-    });
-    deleteCampaignFromSupabase(campId);
-  };
-
-  // ----------------------------------------------------------------------------
-  // 6. XÓA & DỌN DẸP TOÀN BỘ DANH SÁCH ẢO
-  // ----------------------------------------------------------------------------
-  const clearDummyData = async () => {
-    const dummyTaskIds = [
-      'a1111111-1111-1111-1111-111111111111',
-      'a2222222-2222-2222-2222-222222222222',
-      'a3333333-3333-3333-3333-333333333333',
-      'a4444444-4444-4444-4444-444444444444',
-      'a5555555-5555-5555-5555-555555555555',
-      'a6666666-6666-6666-6666-666666666666',
-    ];
-    const dummyDocIds = [
-      'd1111111-1111-1111-1111-111111111111',
-      'd2222222-2222-2222-2222-222222222222',
-      'd3333333-3333-3333-3333-333333333333',
-      'd4444444-4444-4444-4444-444444444444',
-    ];
-
-    // Ghi nhận tombstone vĩnh viễn
-    tasks.forEach((t) => {
-      if (t.id.startsWith('a1') || t.id.startsWith('a2') || t.id.startsWith('a3') ||
-          t.id.startsWith('a4') || t.id.startsWith('a5') || t.id.startsWith('a6')) {
-        addDeletedId('btv_deleted_task_ids', t.id);
-      }
-    });
-    dummyTaskIds.forEach((id) => addDeletedId('btv_deleted_task_ids', id));
-
-    incomingDocs.forEach((d) => {
-      if (d.id.startsWith('d1') || d.id.startsWith('d2') || d.id.startsWith('d3') || d.id.startsWith('d4')) {
-        addDeletedId('btv_deleted_doc_ids', d.id);
-      }
-    });
-    dummyDocIds.forEach((id) => addDeletedId('btv_deleted_doc_ids', id));
-
-    const realTasks = tasks.filter(
-      (t) => !t.id.startsWith('a1') && !t.id.startsWith('a2') && !t.id.startsWith('a3') &&
-             !t.id.startsWith('a4') && !t.id.startsWith('a5') && !t.id.startsWith('a6')
-    );
-    setTasks(realTasks);
-
-    const realDocs = incomingDocs.filter(
-      (d) => !d.id.startsWith('d1') && !d.id.startsWith('d2') && !d.id.startsWith('d3') && !d.id.startsWith('d4')
-    );
-    setIncomingDocs(realDocs);
-
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('btv_tasks', JSON.stringify(realTasks));
-      localStorage.setItem('btv_docs', JSON.stringify(realDocs));
-    }
-
-    for (const tid of dummyTaskIds) {
-      deleteTaskFromSupabase(tid);
-    }
-    for (const did of dummyDocIds) {
-      deleteIncomingDocFromSupabase(did);
-    }
-  };
-
-  // ----------------------------------------------------------------------------
-  // 7. THAO TÁC CÔNG VIỆC (GHI VĨNH VIỄN LÊN SUPABASE + REALTIME + NOTIFICATION)
-  // ----------------------------------------------------------------------------
-
-  const addTask = (taskData: Partial<Task> & { collaborator_ids?: string[] }): Task => {
-    const newId = generateUUID();
-    const newTask: Task = {
-      id: newId,
-      campaign_id: taskData.campaign_id || null,
-      source_document_id: taskData.source_document_id || null,
-      title: taskData.title || 'Công việc mới',
-      description: taskData.description || '',
-      owner_id: taskData.owner_id || currentMember.id,
-      created_by: currentMember.id,
-      priority: taskData.priority || 'binh_thuong',
-      status: taskData.status || 'moi',
-      approval_scope: taskData.approval_scope || 'chuyen_mon',
-      due_at: taskData.due_at || null,
-      collaborator_ids: taskData.collaborator_ids || [],
-      access_level: taskData.access_level || 'cong_khai',
-      inherited_doc_file_url: taskData.inherited_doc_file_url,
-      inherited_doc_file_name: taskData.inherited_doc_file_name,
-      delegated_from_id: taskData.delegated_from_id,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      comments_count: 0,
-    };
-
-    setTasks((prev) => {
-      const updated = [newTask, ...prev];
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('btv_tasks', JSON.stringify(updated));
-      }
-      return updated;
-    });
-
-    const log: ActivityLog = {
-      id: generateUUID(),
-      task_id: newTask.id,
-      member_id: currentMember.id,
-      action: 'created',
-      detail: { title: newTask.title, owner_id: newTask.owner_id },
-      created_at: new Date().toISOString(),
-      member: currentMember,
-    };
-    setActivityLogs((prev) => {
-      const updated = [log, ...prev];
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('btv_activity_logs', JSON.stringify(updated));
-      }
-      return updated;
-    });
-
-    insertTaskToSupabase(newTask);
-    insertActivityLogToSupabase(log);
-
-    // Gửi thông báo đẩy đến điện thoại của người được giao việc
-    const assignedMember = members.find((m) => m.id === newTask.owner_id);
-    sendMobileNotification({
-      title: `Nhiệm vụ mới: ${newTask.title}`,
-      body: `Đ/c ${currentMember.full_name} đã giao việc cho ${assignedMember?.full_name || 'đồng chí'}. Hạn chót: ${newTask.due_at ? newTask.due_at.slice(0, 10) : 'Không có'}`,
-      tag: `task-${newTask.id}`,
-    });
-
-    return newTask;
-  };
-
-  const updateTask = (taskId: string, updates: Partial<Task>) => {
-    setTasks((prev) => {
-      const updated = prev.map((task) => {
-        if (task.id === taskId) {
-          return {
-            ...task,
-            ...updates,
-            updated_at: new Date().toISOString(),
-          };
-        }
-        return task;
+      setAuditLogs((prev) => {
+        const next = [newLog, ...prev];
+        if (typeof window !== 'undefined') localStorage.setItem(STORAGE_KEYS.AUDIT_LOGS, JSON.stringify(next));
+        return next;
       });
+    },
+    [currentUser]
+  );
+
+  // 1. Submit Profile Update Request (Dữ liệu chờ duyệt - Không tự ghi đè hồ sơ!)
+  const submitProfileUpdateRequest = useCallback(
+    (profileId: string, proposedFields: Record<string, string>, reason: string) => {
+      const profile = profiles.find((p) => p.id === profileId);
+      if (!profile) return { success: false, message: 'Không tìm thấy hồ sơ cán bộ' };
+
+      const diffs: ProfileFieldDiff[] = [];
+      const fieldLabels: Record<string, string> = {
+        current_residence: 'Nơi ở hiện nay',
+        email: 'Email',
+        phone: 'Số điện thoại',
+        hometown: 'Quê quán',
+        major: 'Ngành học',
+        qualification: 'Trình độ chuyên môn',
+        political_theory: 'Trình độ lý luận chính trị',
+      };
+
+      Object.entries(proposedFields).forEach(([key, proposedVal]) => {
+        const currentVal = String((profile as any)[key] || '');
+        if (proposedVal !== undefined) {
+          diffs.push({
+            label: fieldLabels[key] || key,
+            field_key: key,
+            current_value: currentVal || 'Chưa có',
+            proposed_value: proposedVal,
+            is_changed: currentVal !== proposedVal,
+          });
+        }
+      });
+
+      const newId = `HS-${String(updateRequests.length + 12).padStart(4, '0')}`;
+      const now = new Date();
+      const dateStr = `${now.getDate().toString().padStart(2, '0')}/${(now.getMonth() + 1)
+        .toString()
+        .padStart(2, '0')}/${now.getFullYear()}`;
+
+      const newReq: ProfileUpdateRequest = {
+        id: newId,
+        profile_id: profile.id,
+        profile_name: profile.full_name,
+        student_id: profile.student_id || profile.staff_id || '',
+        unit_name: profile.roles[0]?.unit_name || 'Đoàn cơ sở',
+        reason,
+        diffs,
+        status: 'pending',
+        created_at: `${dateStr} ${now.getHours().toString().padStart(2, '0')}:${now
+          .getMinutes()
+          .toString()
+          .padStart(2, '0')}`,
+        version: `v${profile.version}.1 (${dateStr})`,
+      };
+
+      const updatedRequests = [newReq, ...updateRequests];
+      setUpdateRequests(updatedRequests);
+      setSelectedRequestId(newId);
       if (typeof window !== 'undefined') {
-        localStorage.setItem('btv_tasks', JSON.stringify(updated));
+        localStorage.setItem(STORAGE_KEYS.REQUESTS, JSON.stringify(updatedRequests));
       }
-      return updated;
-    });
 
-    updateTaskOnSupabase(taskId, updates);
-  };
-
-  const deleteTask = (taskId: string) => {
-    addDeletedId('btv_deleted_task_ids', taskId);
-    setTasks((prev) => {
-      const updated = prev.filter((t) => t.id !== taskId);
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('btv_tasks', JSON.stringify(updated));
-      }
-      return updated;
-    });
-    if (selectedTaskId === taskId) {
-      setSelectedTaskId(null);
-    }
-    deleteTaskFromSupabase(taskId);
-  };
-
-  const updateTaskStatus = (taskId: string, status: TaskStatus) => {
-    const task = tasks.find((t) => t.id === taskId);
-    if (!task) return;
-
-    const updates: Partial<Task> = { status };
-    if (status === 'dang_lam' && !task.started_at) {
-      updates.started_at = new Date().toISOString();
-    }
-    if (status === 'cho_duyet') {
-      updates.submitted_at = new Date().toISOString();
-    }
-    if (status === 'hoan_thanh') {
-      updates.completed_at = new Date().toISOString();
-    }
-
-    updateTask(taskId, updates);
-
-    const log: ActivityLog = {
-      id: generateUUID(),
-      task_id: taskId,
-      member_id: currentMember.id,
-      action: 'status_changed',
-      detail: { from: task.status, to: status },
-      created_at: new Date().toISOString(),
-      member: currentMember,
-    };
-    setActivityLogs((prev) => [log, ...prev]);
-    insertActivityLogToSupabase(log);
-  };
-
-  const submitTaskForApproval = (taskId: string) => {
-    updateTaskStatus(taskId, 'cho_duyet');
-  };
-
-  const submitTaskResult = (
-    taskId: string,
-    submission: { note: string; links?: string[]; files?: string[] }
-  ) => {
-    const now = new Date().toISOString();
-    const updates: Partial<Task> = {
-      status: 'cho_duyet',
-      submission_note: submission.note,
-      submission_links: submission.links || [],
-      submission_files: submission.files || [],
-      submitted_at: now,
-      updated_at: now,
-    };
-    updateTask(taskId, updates);
-
-    const log: ActivityLog = {
-      id: generateUUID(),
-      task_id: taskId,
-      member_id: currentMember.id,
-      action: 'status_changed',
-      detail: { from: 'dang_lam', to: 'cho_duyet', note: submission.note },
-      created_at: now,
-      member: currentMember,
-    };
-    setActivityLogs((prev) => [log, ...prev]);
-    insertActivityLogToSupabase(log);
-  };
-
-  const reviewTaskResult = (
-    taskId: string,
-    review: { grade: RatingGrade; score: number; feedback: string; approved: boolean }
-  ) => {
-    const now = new Date().toISOString();
-    if (review.approved) {
-      const updates: Partial<Task> = {
-        status: 'hoan_thanh',
-        completed_at: now,
-        rating_grade: review.grade,
-        rating_score: review.score,
-        review_feedback: review.feedback,
-        rated_by: currentMember.id,
-        rated_at: now,
-        approved_by: currentMember.id,
-        updated_at: now,
+      // Notify candidate
+      const newNotif: NotificationItem = {
+        id: 'notif_' + Date.now(),
+        title: 'Yêu cầu cập nhật hồ sơ đang chờ duyệt',
+        content: `Yêu cầu cập nhật thông tin hồ sơ của bạn (Mã: ${newId}) đã được tiếp nhận và đang chờ duyệt.`,
+        sender_name: 'Hệ thống Quản lý Cán bộ',
+        target_type: 'individual',
+        target_profile_id: profile.id,
+        category: 'ho_so',
+        channel: 'in_app',
+        send_time_type: 'immediate',
+        created_at: newReq.created_at,
+        is_read: false,
+        read_by_user_ids: [],
+        link_type: 'ho_so',
+        link_id: newId,
+        link_label: 'Xem yêu cầu',
       };
-      updateTask(taskId, updates);
+      setNotifications((prev) => [newNotif, ...prev]);
 
-      const log: ActivityLog = {
-        id: generateUUID(),
-        task_id: taskId,
-        member_id: currentMember.id,
-        action: 'approved',
-        detail: {
-          approved_by: currentMember.full_name,
-          grade: review.grade,
-          score: review.score,
-          feedback: review.feedback,
-        },
-        created_at: now,
-        member: currentMember,
-      };
-      setActivityLogs((prev) => [log, ...prev]);
-      insertActivityLogToSupabase(log);
-    } else {
-      const updates: Partial<Task> = {
-        status: 'dang_lam',
-        review_feedback: review.feedback,
-        updated_at: now,
-      };
-      updateTask(taskId, updates);
-
-      addComment(
-        taskId,
-        `[YÊU CẦU LÀM LẠI] ${currentMember.full_name} đã đánh giá và yêu cầu bổ sung: "${review.feedback}"`
+      logActivity(
+        'sua_ho_so',
+        'Gửi đề xuất cập nhật hồ sơ',
+        newId,
+        `Yêu cầu ${newId}`,
+        'Yêu cầu cập nhật hồ sơ',
+        `Cán bộ ${profile.full_name} đã gửi đề xuất cập nhật hồ sơ.`
       );
 
-      const log: ActivityLog = {
-        id: generateUUID(),
-        task_id: taskId,
-        member_id: currentMember.id,
-        action: 'status_changed',
-        detail: { from: 'cho_duyet', to: 'dang_lam', feedback: review.feedback, reason: 'Yêu cầu làm lại' },
-        created_at: now,
-        member: currentMember,
+      return {
+        success: true,
+        message: `Đã gửi yêu cầu cập nhật hồ sơ thành công (Mã yêu cầu: ${newId}). Vui lòng chờ phê duyệt.`,
+        requestId: newId,
       };
-      setActivityLogs((prev) => [log, ...prev]);
-      insertActivityLogToSupabase(log);
-    }
-  };
+    },
+    [profiles, updateRequests, logActivity]
+  );
 
-  const approveTask = (taskId: string): { success: boolean; message?: string } => {
-    const task = tasks.find((t) => t.id === taskId);
-    if (!task) return { success: false, message: 'Không tìm thấy công việc' };
+  // 2. Approve Profile Update Request
+  const approveProfileUpdateRequest = useCallback(
+    (requestId: string, reviewerComment?: string) => {
+      const req = updateRequests.find((r) => r.id === requestId);
+      if (!req) return { success: false, message: 'Không tìm thấy yêu cầu' };
 
-    const role = currentMember.role;
+      // Section 3 rule: Prevent self approval if configured
+      const shouldPreventSelfApproval = Array.isArray(systemConfig.profile_approval)
+        ? systemConfig.profile_approval.some((w: any) => w.prevent_self_approval)
+        : Boolean(systemConfig.profile_approval?.prevent_self_approval);
 
-    if (task.approval_scope === 'chuyen_mon') {
-      if (role !== 'bi_thu' && role !== 'pho_bi_thu') {
+      if (
+        shouldPreventSelfApproval &&
+        req.profile_id === currentUser.profile_id
+      ) {
         return {
           success: false,
           message:
-            'Công việc này thuộc phạm vi Chuyên môn / Chủ trương, chỉ Bí thư hoặc Phó Bí thư mới có quyền phê duyệt hoàn thành!',
+            'Chính sách hệ thống không cho phép người dùng tự phê duyệt yêu cầu cập nhật hồ sơ do chính mình gửi!',
         };
       }
-    } else if (task.approval_scope === 'hanh_chinh') {
-      if (role !== 'bi_thu' && role !== 'pho_bi_thu' && role !== 'chanh_van_phong') {
+
+      const profile = profiles.find((p) => p.id === req.profile_id);
+      if (!profile) return { success: false, message: 'Hồ sơ cán bộ liên kết không tồn tại' };
+
+      // Apply changes to official profile
+      const updatedProfile = { ...profile };
+      const fieldChangesForLog: { field_name: string; old_value: string; new_value: string }[] = [];
+
+      req.diffs.forEach((diff) => {
+        if (diff.is_changed) {
+          (updatedProfile as any)[diff.field_key] = diff.proposed_value;
+          fieldChangesForLog.push({
+            field_name: diff.label,
+            old_value: diff.current_value,
+            new_value: diff.proposed_value,
+          });
+        }
+      });
+
+      const oldVersion = `v${updatedProfile.version || 1}.0`;
+      updatedProfile.version = (updatedProfile.version || 1) + 1;
+      const newVersion = `v${updatedProfile.version}.0`;
+      updatedProfile.verification_status = 'verified';
+      updatedProfile.updated_at = new Date().toISOString().split('T')[0];
+
+      // Update profiles list
+      const updatedProfiles = profiles.map((p) => (p.id === profile.id ? updatedProfile : p));
+      setProfiles(updatedProfiles);
+
+      // Mark request approved
+      const updatedRequests = updateRequests.map((r) =>
+        r.id === requestId
+          ? {
+              ...r,
+              status: 'approved' as const,
+              reviewed_at: new Date().toLocaleDateString('vi-VN'),
+              reviewer_name: currentUser.full_name,
+              reviewer_comment: reviewerComment || 'Phê duyệt cập nhật thông tin theo hồ sơ đề nghị.',
+            }
+          : r
+      );
+      setUpdateRequests(updatedRequests);
+
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(STORAGE_KEYS.PROFILES, JSON.stringify(updatedProfiles));
+        localStorage.setItem(STORAGE_KEYS.REQUESTS, JSON.stringify(updatedRequests));
+      }
+
+      // Add Notification
+      const notif: NotificationItem = {
+        id: 'notif_' + Date.now(),
+        title: 'Hồ sơ của bạn đã được phê duyệt',
+        content: `Yêu cầu cập nhật hồ sơ (${req.id}) đã được ${currentUser.full_name} phê duyệt thành công. Thông tin mới đã được cập nhật chính thức.`,
+        sender_name: 'Thường trực Đoàn trường',
+        target_type: 'individual',
+        target_profile_id: profile.id,
+        category: 'ho_so',
+        channel: 'in_app',
+        send_time_type: 'immediate',
+        created_at: new Date().toLocaleDateString('vi-VN') + ' ' + new Date().toLocaleTimeString('vi-VN'),
+        is_read: false,
+        read_by_user_ids: [],
+        link_type: 'ho_so',
+        link_id: req.id,
+        link_label: 'Xem hồ sơ',
+      };
+      setNotifications((prev) => [notif, ...prev]);
+
+      logActivity(
+        'duyet_ho_so',
+        'Phê duyệt cập nhật hồ sơ',
+        req.id,
+        `Yêu cầu ${req.id} - ${profile.full_name}`,
+        'Hồ sơ cán bộ',
+        `Phê duyệt cập nhật thông tin cho cán bộ ${profile.full_name}.`,
+        {
+          version_from: oldVersion,
+          version_to: newVersion,
+          field_changes: fieldChangesForLog,
+          notes: reviewerComment || 'Phê duyệt cập nhật thông tin theo hồ sơ đề nghị của cán bộ.',
+        }
+      );
+
+      return {
+        success: true,
+        message: `Đã phê duyệt yêu cầu ${requestId}. Hồ sơ chính thức của ${profile.full_name} đã được cập nhật!`,
+      };
+    },
+    [updateRequests, profiles, currentUser, systemConfig, logActivity]
+  );
+
+  // 3. Return Profile Update Request
+  const returnProfileUpdateRequest = useCallback(
+    (requestId: string, reason: string) => {
+      const req = updateRequests.find((r) => r.id === requestId);
+      if (!req) return { success: false, message: 'Không tìm thấy yêu cầu' };
+
+      const updatedRequests = updateRequests.map((r) =>
+        r.id === requestId
+          ? {
+              ...r,
+              status: 'returned' as const,
+              reviewed_at: new Date().toLocaleDateString('vi-VN'),
+              reviewer_name: currentUser.full_name,
+              reviewer_comment: reason,
+            }
+          : r
+      );
+      setUpdateRequests(updatedRequests);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(STORAGE_KEYS.REQUESTS, JSON.stringify(updatedRequests));
+      }
+
+      // Notify user
+      const notif: NotificationItem = {
+        id: 'notif_' + Date.now(),
+        title: 'Yêu cầu cập nhật hồ sơ được trả lại',
+        content: `Yêu cầu (${req.id}) đã được trả lại để điều chỉnh với lý do: "${reason}". Vui lòng kiểm tra và gửi lại.`,
+        sender_name: 'Thường trực Đoàn trường',
+        target_type: 'individual',
+        target_profile_id: req.profile_id,
+        category: 'ho_so',
+        channel: 'in_app',
+        send_time_type: 'immediate',
+        created_at: new Date().toLocaleDateString('vi-VN'),
+        is_read: false,
+        read_by_user_ids: [],
+        link_type: 'ho_so',
+        link_id: req.id,
+        link_label: 'Chỉnh sửa và gửi lại',
+      };
+      setNotifications((prev) => [notif, ...prev]);
+
+      logActivity(
+        'tra_lai_ho_so',
+        'Trả lại yêu cầu cập nhật hồ sơ',
+        req.id,
+        `Yêu cầu ${req.id}`,
+        'Hồ sơ cán bộ',
+        `Trả lại yêu cầu cập nhật hồ sơ của cán bộ ${req.profile_name}. Lý do: ${reason}`
+      );
+
+      return { success: true, message: `Đã trả lại yêu cầu ${requestId} cho cán bộ.` };
+    },
+    [updateRequests, currentUser, logActivity]
+  );
+
+  // 4. Create Decision with Future Effective Date and Transactional Validation
+  const createDecision = useCallback(
+    (decisionData: Omit<PersonnelDecision, 'id' | 'created_at' | 'created_by'>) => {
+      // Validation Section 7: Atomic check
+      for (let i = 0; i < decisionData.changes.length; i++) {
+        const change = decisionData.changes[i];
+        if (!change.profile_id || !change.position_title) {
+          return {
+            success: false,
+            message: `Dòng số ${i + 1} bị thiếu thông tin cán bộ hoặc chức danh. Quyết định không được tạo một phần!`,
+            errorLineIndex: i,
+          };
+        }
+      }
+
+      const newId = 'dec_' + Date.now();
+      const nowStr = new Date().toISOString().split('T')[0];
+      const isFuture = decisionData.effective_date > nowStr;
+
+      const newDecision: PersonnelDecision = {
+        ...decisionData,
+        id: newId,
+        created_by: currentUser.full_name,
+        created_at: `${new Date().toLocaleDateString('vi-VN')} ${new Date().toLocaleTimeString('vi-VN')}`,
+      };
+
+      // Apply changes to profiles:
+      // If replacement and future effective:
+      // Old person's end_date is set to the day before effective_date
+      // New person's start_date is set to effective_date with status 'future'
+      let updatedProfiles = [...profiles];
+
+      decisionData.changes.forEach((line) => {
+        // If replacing someone
+        if (line.replaces_profile_id) {
+          updatedProfiles = updatedProfiles.map((p) => {
+            if (p.id === line.replaces_profile_id) {
+              const updatedRoles = p.roles.map((r) => {
+                if (r.unit_id === line.unit_id && r.position_title === line.position_title) {
+                  return {
+                    ...r,
+                    end_date: isFuture
+                      ? decisionData.effective_date // Or day before
+                      : decisionData.effective_date,
+                    status: isFuture ? ('active' as const) : ('ended' as const),
+                  };
+                }
+                return r;
+              });
+              return { ...p, roles: updatedRoles };
+            }
+            return p;
+          });
+        }
+
+        // Add new role to beneficiary
+        updatedProfiles = updatedProfiles.map((p) => {
+          if (p.id === line.profile_id) {
+            const newRole = {
+              id: 'role_' + Date.now() + Math.random().toString(36).substring(2, 5),
+              profile_id: p.id,
+              unit_id: line.unit_id,
+              unit_name: line.unit_name,
+              subsystem_id: 'P06' as SubsystemId,
+              position_title: line.position_title,
+              term: decisionData.term || '2026 - 2027',
+              start_date: line.start_date || decisionData.effective_date,
+              end_date: null,
+              decision_id: newId,
+              decision_number: decisionData.decision_number,
+              status: isFuture ? ('future' as const) : ('active' as const),
+            };
+            return {
+              ...p,
+              roles: [...p.roles, newRole],
+            };
+          }
+          return p;
+        });
+      });
+
+      const nextDecisions = [newDecision, ...decisions];
+      setDecisions(nextDecisions);
+      setProfiles(updatedProfiles);
+      setSelectedDecisionId(newId);
+
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(STORAGE_KEYS.DECISIONS, JSON.stringify(nextDecisions));
+        localStorage.setItem(STORAGE_KEYS.PROFILES, JSON.stringify(updatedProfiles));
+      }
+
+      logActivity(
+        'gui_quyet_dinh',
+        'Ban hành quyết định nhân sự',
+        newId,
+        newDecision.decision_number,
+        'Quyết định nhân sự',
+        `Ban hành quyết định ${newDecision.decision_number} (${newDecision.title}). Hiệu lực từ ${newDecision.effective_date}.`
+      );
+
+      return {
+        success: true,
+        message: `Đã ban hành quyết định số ${newDecision.decision_number} thành công.${
+          isFuture
+            ? ` Hiệu lực từ ngày ${newDecision.effective_date}. Danh sách cán bộ hiện tại sẽ tự động chuyển đổi từ thời điểm này.`
+            : ''
+        }`,
+      };
+    },
+    [decisions, profiles, currentUser, logActivity]
+  );
+
+  // 5. Submit Self Evaluation
+  const submitSelfEvaluation = useCallback(
+    (
+      evaluationId: string,
+      taskResults: string,
+      limitations: string,
+      evidenceFiles: { name: string; size: string }[]
+    ) => {
+      const evalItem = evaluations.find((e) => e.id === evaluationId);
+      if (!evalItem) return { success: false, message: 'Không tìm thấy phiếu đánh giá' };
+
+      const updated = evaluations.map((e) =>
+        e.id === evaluationId
+          ? {
+              ...e,
+              task_results: taskResults,
+              limitations_mitigation: limitations,
+              evidence_files: evidenceFiles,
+              status: 'submitted' as const,
+              submitted_at: new Date().toLocaleDateString('vi-VN') + ' ' + new Date().toLocaleTimeString('vi-VN'),
+            }
+          : e
+      );
+
+      setEvaluations(updated);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(STORAGE_KEYS.EVALUATIONS, JSON.stringify(updated));
+      }
+
+      logActivity(
+        'sua_ho_so',
+        'Gửi tự đánh giá tháng',
+        evaluationId,
+        evalItem.position_title,
+        'Đánh giá hằng tháng',
+        `Cán bộ ${evalItem.profile_name} đã gửi phiếu tự đánh giá chức vụ ${evalItem.position_title}.`
+      );
+
+      return { success: true, message: 'Đã gửi bài tự đánh giá thành công!' };
+    },
+    [evaluations, logActivity]
+  );
+
+  // 6. Review Monthly Evaluation
+  const reviewEvaluation = useCallback(
+    (
+      evaluationId: string,
+      proposedGrade: 'A' | 'B' | 'C' | 'D' | null,
+      unitComment: string,
+      approvedGrade: 'A' | 'B' | 'C' | 'D' | null,
+      adminComment: string,
+      action: 'approve' | 'return'
+    ) => {
+      const evalItem = evaluations.find((e) => e.id === evaluationId);
+      if (!evalItem) return { success: false, message: 'Không tìm thấy phiếu đánh giá' };
+
+      const updated = evaluations.map((e) =>
+        e.id === evaluationId
+          ? {
+              ...e,
+              proposed_grade: proposedGrade !== undefined ? proposedGrade : e.proposed_grade,
+              unit_comment: unitComment || e.unit_comment,
+              approved_grade: approvedGrade !== undefined ? approvedGrade : e.approved_grade,
+              admin_comment: adminComment || e.admin_comment,
+              status: action === 'approve' ? ('approved' as const) : ('returned' as const),
+              reviewed_at: new Date().toLocaleDateString('vi-VN'),
+            }
+          : e
+      );
+
+      setEvaluations(updated);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(STORAGE_KEYS.EVALUATIONS, JSON.stringify(updated));
+      }
+
+      logActivity(
+        'duyet_ho_so',
+        action === 'approve' ? 'Duyệt đánh giá cán bộ' : 'Trả lại phiếu đánh giá',
+        evaluationId,
+        evalItem.profile_name,
+        'Đánh giá hằng tháng',
+        `${action === 'approve' ? 'Duyệt' : 'Trả lại'} kết quả đánh giá cho cán bộ ${evalItem.profile_name} (${evalItem.position_title}). Mức xếp loại: ${approvedGrade || proposedGrade || 'Chưa xét'}`
+      );
+
+      return {
+        success: true,
+        message:
+          action === 'approve'
+            ? `Đã duyệt đánh giá cho cán bộ ${evalItem.profile_name}!`
+            : `Đã trả lại phiếu đánh giá cho cán bộ ${evalItem.profile_name}.`,
+      };
+    },
+    [evaluations, logActivity]
+  );
+
+  // 7. Publish Evaluation Period (Mục 8: Kết quả xếp loại chỉ hiện sau công bố)
+  const publishEvaluationPeriod = useCallback(
+    (periodId: string) => {
+      const period = evaluationPeriods.find((p) => p.id === periodId);
+      if (!period) return { success: false, message: 'Không tìm thấy kỳ đánh giá' };
+
+      const nextPeriods = evaluationPeriods.map((p) =>
+        p.id === periodId ? { ...p, status: 'published' as const, is_published: true } : p
+      );
+      setEvaluationPeriods(nextPeriods);
+
+      // Create notification
+      const notif: NotificationItem = {
+        id: 'notif_' + Date.now(),
+        title: `Kết quả đánh giá ${period.month_year} đã được công bố`,
+        content: `Thường trực Đoàn trường đã chính thức công bố kết quả xếp loại cán bộ Đoàn – Hội ${period.month_year}. Bạn có thể vào xem kết quả và nhận xét tại mục Đánh giá của tôi.`,
+        sender_name: 'Đoàn trường',
+        target_type: 'all',
+        category: 'danh_gia',
+        channel: 'in_app',
+        send_time_type: 'immediate',
+        created_at: new Date().toLocaleDateString('vi-VN') + ' ' + new Date().toLocaleTimeString('vi-VN'),
+        is_read: false,
+        read_by_user_ids: [],
+        link_type: 'danh_gia',
+        link_id: period.id,
+        link_label: 'Xem kết quả',
+      };
+      setNotifications((prev) => [notif, ...prev]);
+
+      logActivity(
+        'cong_bo_danh_gia',
+        'Công bố kết quả đánh giá hằng tháng',
+        period.id,
+        period.title,
+        'Kỳ đánh giá',
+        `Chính thức công bố và khóa dữ liệu kết quả xếp loại cán bộ Đoàn – Hội ${period.month_year}.`
+      );
+
+      return {
+        success: true,
+        message: `Đã công bố và khóa kỳ đánh giá ${period.month_year} thành công. Kết quả hiện đã hiển thị cho cán bộ.`,
+      };
+    },
+    [evaluationPeriods, logActivity]
+  );
+
+  // 8. Reopen Evaluation Period with Logged Justification
+  const reopenEvaluationPeriod = useCallback(
+    (periodId: string, reason: string) => {
+      const period = evaluationPeriods.find((p) => p.id === periodId);
+      if (!period) return { success: false, message: 'Không tìm thấy kỳ đánh giá' };
+
+      const nextPeriods = evaluationPeriods.map((p) =>
+        p.id === periodId ? { ...p, status: 'open' as const, is_published: false } : p
+      );
+      setEvaluationPeriods(nextPeriods);
+
+      logActivity(
+        'mo_lai_ky',
+        'Mở lại kỳ đánh giá đã khóa',
+        period.id,
+        period.title,
+        'Kỳ đánh giá',
+        `Mở lại kỳ đánh giá ${period.month_year} để điều chỉnh. Căn cứ/Lý do: "${reason}".`
+      );
+
+      return {
+        success: true,
+        message: `Đã mở lại kỳ đánh giá ${period.month_year}. Kết quả đã tạm thời ẩn để điều chỉnh có nhật ký.`,
+      };
+    },
+    [evaluationPeriods, logActivity]
+  );
+
+  // 9. Notification operations
+  const createNotification = useCallback(
+    (notifData: Omit<NotificationItem, 'id' | 'created_at' | 'is_read' | 'read_by_user_ids'>) => {
+      const newNotif: NotificationItem = {
+        ...notifData,
+        id: 'notif_' + Date.now(),
+        created_at: new Date().toLocaleDateString('vi-VN') + ' ' + new Date().toLocaleTimeString('vi-VN'),
+        is_read: false,
+        read_by_user_ids: [],
+      };
+      setNotifications((prev) => {
+        const next = [newNotif, ...prev];
+        if (typeof window !== 'undefined') localStorage.setItem(STORAGE_KEYS.NOTIFICATIONS, JSON.stringify(next));
+        return next;
+      });
+    },
+    []
+  );
+
+  const markNotificationAsRead = useCallback((id: string) => {
+    setNotifications((prev) => {
+      const next = prev.map((n) => (n.id === id ? { ...n, is_read: true } : n));
+      if (typeof window !== 'undefined') localStorage.setItem(STORAGE_KEYS.NOTIFICATIONS, JSON.stringify(next));
+      return next;
+    });
+  }, []);
+
+  const markAllNotificationsAsRead = useCallback(() => {
+    setNotifications((prev) => {
+      const next = prev.map((n) => ({ ...n, is_read: true }));
+      if (typeof window !== 'undefined') localStorage.setItem(STORAGE_KEYS.NOTIFICATIONS, JSON.stringify(next));
+      return next;
+    });
+  }, []);
+
+  const addNotification = createNotification;
+
+  const addAuditLog = useCallback(
+    (log: any) => {
+      const now = new Date();
+      const newLog: AuditLog = {
+        id: `log_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+        timestamp: `${now.getDate().toString().padStart(2, '0')}/${(now.getMonth() + 1).toString().padStart(2, '0')}/${now.getFullYear()} ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`,
+        user_id: currentUser.id,
+        user_name: log.actor_name || currentUser.full_name,
+        user_mssv: log.actor_code || currentUser.student_id,
+        actor_name: log.actor_name || currentUser.full_name,
+        actor_code: log.actor_code || currentUser.student_id,
+        action: log.action || log.action_type || 'system_event',
+        action_type: log.action_type || log.action || 'UPDATE',
+        action_label: log.action_label || log.action || 'Thao tác hệ thống',
+        target_id: log.target_id || '',
+        target_name: log.target_name || log.target_id || 'Hệ thống',
+        target_type: log.target_type || 'system',
+        result: (log.result as any) || 'SUCCESS',
+        details: log.description || log.details || '',
+        description: log.description || log.details || '',
+        created_at: log.created_at || now.toISOString(),
+        ip_address: log.ip_address || '127.0.0.1',
+      };
+      setAuditLogs((prev) => {
+        const next = [newLog, ...prev];
+        if (typeof window !== 'undefined') localStorage.setItem(STORAGE_KEYS.AUDIT_LOGS, JSON.stringify(next));
+        return next;
+      });
+    },
+    [currentUser]
+  );
+
+  // 10. Master Data Additions
+  const addUnit = useCallback((unitData: Omit<Unit, 'id'>) => {
+    const newUnit: Unit = {
+      ...unitData,
+      id: 'unit_' + Date.now(),
+    };
+    setUnits((prev) => [...prev, newUnit]);
+  }, []);
+
+  const addPosition = useCallback((posData: Omit<PositionDefinition, 'id'>) => {
+    const newPos: PositionDefinition = {
+      ...posData,
+      id: 'pos_' + Date.now(),
+    };
+    setPositions((prev) => [...prev, newPos]);
+  }, []);
+
+  const addProfile = useCallback(
+    (profileData: Omit<OfficerProfile, 'id' | 'created_at' | 'updated_at' | 'version'>) => {
+      // Check duplicate student_id
+      if (
+        profileData.student_id &&
+        profiles.some((p) => p.student_id?.toLowerCase() === profileData.student_id?.toLowerCase())
+      ) {
         return {
           success: false,
-          message: 'Chỉ Bí thư, Phó Bí thư hoặc Chánh văn phòng mới có quyền phê duyệt việc hành chính!',
+          message: `Mã số sinh viên ${profileData.student_id} đã tồn tại trong hệ thống! Không được tạo trùng hồ sơ.`,
         };
       }
-    }
 
-    const updates = {
-      status: 'hoan_thanh' as TaskStatus,
-      completed_at: new Date().toISOString(),
-      approved_by: currentMember.id,
-    };
-
-    updateTask(taskId, updates);
-
-    const log: ActivityLog = {
-      id: generateUUID(),
-      task_id: taskId,
-      member_id: currentMember.id,
-      action: 'approved',
-      detail: { approved_by: currentMember.full_name, role: currentMember.role },
-      created_at: new Date().toISOString(),
-      member: currentMember,
-    };
-    setActivityLogs((prev) => [log, ...prev]);
-    insertActivityLogToSupabase(log);
-
-    return { success: true };
-  };
-
-  const rejectTask = (taskId: string, reason: string) => {
-    updateTask(taskId, {
-      status: 'dang_lam',
-      submitted_at: null,
-    });
-
-    addComment(taskId, `[YÊU CẦU LÀM LẠI] ${currentMember.full_name} đã yêu cầu bổ sung: "${reason}"`);
-  };
-
-  const manualRemind = (taskId: string, message: string): { success: boolean; message: string } => {
-    const task = tasks.find((t) => t.id === taskId);
-    if (!task) return { success: false, message: 'Không tìm thấy công việc' };
-
-    if (
-      currentMember.role !== 'bi_thu' &&
-      currentMember.role !== 'pho_bi_thu' &&
-      currentMember.role !== 'chanh_van_phong'
-    ) {
-      return { success: false, message: 'Chỉ Thường trực hoặc Chánh văn phòng mới có quyền đôn đốc công việc!' };
-    }
-
-    const lastRemindLog = activityLogs.find(
-      (l) => l.task_id === taskId && l.member_id === currentMember.id && l.action === 'don_doc'
-    );
-
-    const check = checkCanManualRemind(lastRemindLog?.created_at);
-    if (!check.allowed) {
-      return {
-        success: false,
-        message: `Đồng chí vừa đôn đốc công việc này. Theo quy định, vui lòng đợi thêm ${check.waitMinutes} phút (tối đa 1 lần/6 giờ)!`,
+      const newId = 'prof_' + Date.now();
+      const codeNum = profiles.length + 1;
+      const newProfile: OfficerProfile = {
+        ...profileData,
+        id: newId,
+        profile_code: `CB-${String(codeNum).padStart(4, '0')}`,
+        version: 1,
+        created_at: new Date().toISOString().split('T')[0],
+        updated_at: new Date().toISOString().split('T')[0],
       };
-    }
 
-    const log: ActivityLog = {
-      id: generateUUID(),
-      task_id: taskId,
-      member_id: currentMember.id,
-      action: 'don_doc',
-      detail: {
-        reminded_by: currentMember.full_name,
-        role: currentMember.role,
-        message,
-      },
-      created_at: new Date().toISOString(),
-      member: currentMember,
-    };
-    setActivityLogs((prev) => [log, ...prev]);
-    insertActivityLogToSupabase(log);
-
-    const newNotification = {
-      id: 'n-' + Date.now(),
-      title: `Đ/c ${currentMember.full_name} (${currentMember.role === 'chanh_van_phong' ? 'Chánh VP' : 'Thường trực'}) đã đôn đốc: "${task.title}"`,
-      time: 'Vừa xong',
-      icon: 'bell',
-      unread: true,
-    };
-    setNotifications((prev) => [newNotification, ...prev]);
-
-    // Gửi thông báo rung chuông tới điện thoại
-    sendMobileNotification({
-      title: `Đôn đốc công việc: ${task.title}`,
-      body: `Đ/c ${currentMember.full_name} nhắc nhở: "${message}"`,
-      tag: `remind-${task.id}`,
-      requireInteraction: true,
-    });
-
-    return {
-      success: true,
-      message: `Đã gửi đôn đốc thành công qua Web Push và Email tới người phụ trách!`,
-    };
-  };
-
-  // ----------------------------------------------------------------------------
-  // 8. THAO TÁC VĂN BẢN ĐẾN & GIAO VIỆC
-  // ----------------------------------------------------------------------------
-
-  const addIncomingDoc = (docData: Partial<IncomingDocument>): IncomingDocument => {
-    const newDoc: IncomingDocument = {
-      id: generateUUID(),
-      don_vi_gui: docData.don_vi_gui || 'ĐƠN VỊ KHÁC',
-      noi_dung: docData.noi_dung || '',
-      so_ky_hieu: docData.so_ky_hieu || '',
-      ngay_nhan: docData.ngay_nhan || new Date().toISOString().split('T')[0],
-      ngay_chuyen_xu_ly: docData.ngay_chuyen_xu_ly || '',
-      nguoi_nhan_xu_ly: docData.nguoi_nhan_xu_ly || 'Xin ý kiến BTV',
-      thoi_han_xu_ly: docData.thoi_han_xu_ly || null,
-      ghi_chu: docData.ghi_chu || '',
-      file_path: docData.file_path,
-      file_url: docData.file_url,
-      file_name: docData.file_name,
-      file_size: docData.file_size,
-      access_level: docData.access_level || 'cong_khai',
-      created_by: currentMember.id,
-      created_at: new Date().toISOString(),
-    };
-
-    setIncomingDocs((prev) => {
-      const updated = [newDoc, ...prev];
+      const updated = [newProfile, ...profiles];
+      setProfiles(updated);
       if (typeof window !== 'undefined') {
-        localStorage.setItem('btv_docs', JSON.stringify(updated));
+        localStorage.setItem(STORAGE_KEYS.PROFILES, JSON.stringify(updated));
       }
-      return updated;
-    });
-    insertIncomingDocToSupabase(newDoc);
-    return newDoc;
-  };
 
-  const deleteIncomingDoc = (docId: string) => {
-    addDeletedId('btv_deleted_doc_ids', docId);
-    setIncomingDocs((prev) => {
-      const updated = prev.filter((d) => d.id !== docId);
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('btv_docs', JSON.stringify(updated));
-      }
-      return updated;
-    });
-    deleteIncomingDocFromSupabase(docId);
-  };
+      logActivity(
+        'tao_ho_so',
+        'Tạo hồ sơ cán bộ mới',
+        newId,
+        newProfile.full_name,
+        'Hồ sơ cán bộ',
+        `Tạo mới hồ sơ cho cán bộ ${newProfile.full_name} (${newProfile.student_id || newProfile.staff_id}).`
+      );
 
-  const assignTaskFromDocument = (
-    docId: string,
-    taskData?: Partial<Task>
-  ): { success: boolean; task?: Task; message?: string } => {
-    const doc = incomingDocs.find((d) => d.id === docId);
-    if (!doc) return { success: false, message: 'Không tìm thấy thông tin văn bản đến.' };
-
-    const existing = tasks.find((t) => t.source_document_id === docId);
-    if (existing) {
       return {
-        success: false,
-        task: existing,
-        message: `Văn bản này đã được giao việc: "${existing.title}". Hãy kiểm tra lại danh sách công việc!`,
+        success: true,
+        message: `Đã tạo hồ sơ cho cán bộ ${newProfile.full_name} thành công (Mã: ${newProfile.profile_code})!`,
       };
-    }
+    },
+    [profiles, logActivity]
+  );
 
-    const newTask = addTask({
-      title: taskData?.title || `Xử lý VB [${doc.so_ky_hieu || 'CV'}]: ${doc.noi_dung.slice(0, 60)}...`,
-      description:
-        taskData?.description ||
-        `Trích yếu văn bản: ${doc.noi_dung}\nĐơn vị gửi: ${doc.don_vi_gui}\nSố ký hiệu: ${doc.so_ky_hieu || 'Chưa có'}\nGhi chú: ${doc.ghi_chu || 'Không'}`,
-      source_document_id: doc.id,
-      owner_id: taskData?.owner_id || currentMember.id,
-      collaborator_ids: taskData?.collaborator_ids || [],
-      priority: taskData?.priority || 'cao',
-      approval_scope: taskData?.approval_scope || 'chuyen_mon',
-      due_at: taskData?.due_at || doc.thoi_han_xu_ly || new Date(Date.now() + 7 * 86400000).toISOString(),
-      access_level: doc.access_level || 'cong_khai',
-      inherited_doc_file_url: doc.file_url,
-      inherited_doc_file_name: doc.file_name,
-      delegated_from_id: taskData?.delegated_from_id,
-      status: 'moi',
-    });
+  const updateSystemConfig = useCallback((newConfig: Partial<SystemConfig>) => {
+    setSystemConfig((prev) => ({ ...prev, ...newConfig }));
+  }, []);
 
-    const ownerName =
-      members.find((m) => m.id === newTask.owner_id)?.full_name || currentMember.full_name;
-    const docUpdates = {
-      ngay_chuyen_xu_ly: new Date().toISOString().split('T')[0],
-      nguoi_nhan_xu_ly: ownerName,
-    };
-    setIncomingDocs((prev) => {
-      const updated = prev.map((d) => (d.id === docId ? { ...d, ...docUpdates } : d));
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('btv_docs', JSON.stringify(updated));
-      }
-      return updated;
-    });
-    updateIncomingDocOnSupabase(docId, docUpdates);
+  // Time-based calculations for current vs past date (Mục 1 & 11)
+  const getActiveRolesAtDate = useCallback(
+    (profileId: string, dateStr: string) => {
+      const profile = profiles.find((p) => p.id === profileId);
+      if (!profile) return [];
 
-    return { success: true, task: newTask };
-  };
-
-  const createTasksFromDoc = (
-    docId: string,
-    assigneeIds: string[],
-    title?: string,
-    description?: string,
-    priority: TaskPriority = 'binh_thuong',
-    approvalScope: ApprovalScope = 'hanh_chinh'
-  ): Task[] => {
-    const doc = incomingDocs.find((d) => d.id === docId);
-    if (!doc || assigneeIds.length === 0) return [];
-
-    const createdTasks: Task[] = [];
-
-    assigneeIds.forEach((assigneeId) => {
-      const newTask = addTask({
-        source_document_id: doc.id,
-        title: title || `Xử lý VB [${doc.so_ky_hieu || 'CV'}]: ${doc.noi_dung.slice(0, 50)}...`,
-        description: description || `Theo văn bản đến số ${doc.so_ky_hieu || ''} từ ${doc.don_vi_gui}. Ghi chú: ${doc.ghi_chu || 'Không'}`,
-        owner_id: assigneeId,
-        priority,
-        approval_scope: approvalScope,
-        due_at: doc.thoi_han_xu_ly || null,
-        access_level: doc.access_level || 'cong_khai',
-        inherited_doc_file_url: doc.file_url,
-        inherited_doc_file_name: doc.file_name,
-        status: 'moi',
+      return profile.roles.filter((r) => {
+        // Must have started on or before target date
+        if (r.start_date > dateStr) return false;
+        // If end_date is set, must be on or after target date
+        if (r.end_date && r.end_date < dateStr) return false;
+        return true;
       });
-      createdTasks.push(newTask);
-    });
+    },
+    [profiles]
+  );
 
-    const assigneeNames = assigneeIds
-      .map((id) => members.find((m) => m.id === id)?.full_name || '')
-      .filter(Boolean)
-      .join(', ');
+  // Statistics separating unique persons vs total role counts (Mục 6)
+  const getUniqueOfficerCount = useCallback(
+    (unitId?: string, dateStr?: string) => {
+      const targetDate = dateStr || '2026-10-13';
+      const uniqueIds = new Set<string>();
 
-    const docUpdates = {
-      ngay_chuyen_xu_ly: new Date().toISOString().split('T')[0],
-      nguoi_nhan_xu_ly: assigneeNames || doc.nguoi_nhan_xu_ly,
-    };
+      profiles.forEach((p) => {
+        const activeRoles = p.roles.filter((r) => {
+          if (unitId && unitId !== 'all' && r.unit_id !== unitId) return false;
+          if (r.start_date > targetDate) return false;
+          if (r.end_date && r.end_date < targetDate) return false;
+          return true;
+        });
 
-    setIncomingDocs((prev) => {
-      const updated = prev.map((d) => (d.id === docId ? { ...d, ...docUpdates } : d));
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('btv_docs', JSON.stringify(updated));
-      }
-      return updated;
-    });
-    updateIncomingDocOnSupabase(docId, docUpdates);
-
-    return createdTasks;
-  };
-
-  // ----------------------------------------------------------------------------
-  // 9. THAO TÁC BÌNH LUẬN & CHAT NHÓM BTV
-  // ----------------------------------------------------------------------------
-
-  const addComment = (taskId: string, body: string) => {
-    const newComment: TaskComment = {
-      id: generateUUID(),
-      task_id: taskId,
-      member_id: currentMember.id,
-      body,
-      created_at: new Date().toISOString(),
-      member: currentMember,
-    };
-
-    setComments((prev) => {
-      const updated = [...prev, newComment];
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('btv_comments', JSON.stringify(updated));
-      }
-      return updated;
-    });
-
-    setTasks((prev) => {
-      const updated = prev.map((t) => (t.id === taskId ? { ...t, comments_count: (t.comments_count || 0) + 1 } : t));
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('btv_tasks', JSON.stringify(updated));
-      }
-      return updated;
-    });
-
-    insertCommentToSupabase(newComment);
-  };
-
-  const sendChatMessage = (
-    body: string,
-    replyTo?: string,
-    mentions?: string[],
-    richCard?: ChatRichCard
-  ) => {
-    const newMsg: ChatMessage = {
-      id: generateUUID(),
-      member_id: currentMember.id,
-      body,
-      reply_to: replyTo || null,
-      mentions: mentions || [],
-      rich_card: richCard,
-      created_at: new Date().toISOString(),
-      member: currentMember,
-    };
-
-    setChatMessages((prev) => {
-      const updated = [...prev, newMsg];
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('btv_chat_messages', JSON.stringify(updated));
-      }
-      return updated;
-    });
-    insertChatMessageToSupabase(newMsg);
-  };
-
-  // ----------------------------------------------------------------------------
-  // 10. TRỢ GIÚP THỐNG KÊ & PHÂN TÍCH TIẾN ĐỘ
-  // ----------------------------------------------------------------------------
-
-  const getMyTasks = (memberId?: string) => {
-    const targetId = memberId || currentMember.id;
-    const myTasks = tasks.filter(
-      (t) => t.owner_id === targetId || (t.collaborator_ids && t.collaborator_ids.includes(targetId))
-    );
-
-    const now = new Date();
-    const todayStr = now.toISOString().split('T')[0];
-
-    const overdue: Task[] = [];
-    const today: Task[] = [];
-    const thisWeek: Task[] = [];
-    const upcoming: Task[] = [];
-    const completed: Task[] = [];
-
-    myTasks.forEach((t) => {
-      if (t.status === 'hoan_thanh') {
-        completed.push(t);
-        return;
-      }
-
-      if (!t.due_at) {
-        upcoming.push(t);
-        return;
-      }
-
-      const due = new Date(t.due_at);
-      const dueDateStr = due.toISOString().split('T')[0];
-
-      if (due < now) {
-        overdue.push(t);
-      } else if (dueDateStr === todayStr) {
-        today.push(t);
-      } else {
-        const diffDays = (due.getTime() - now.getTime()) / (1000 * 3600 * 24);
-        if (diffDays <= 7) {
-          thisWeek.push(t);
-        } else {
-          upcoming.push(t);
-        }
-      }
-    });
-
-    return { overdue, today, thisWeek, upcoming, completed };
-  };
-
-  const getCoordinatorData = () => {
-    const now = new Date();
-
-    const overdueTasks = tasks
-      .filter((t) => t.status !== 'hoan_thanh' && t.status !== 'huy' && t.due_at && new Date(t.due_at) < now)
-      .map((t) => {
-        const diffMs = now.getTime() - new Date(t.due_at!).getTime();
-        const daysOverdue = Math.max(1, Math.floor(diffMs / (1000 * 3600 * 24)));
-        return { ...t, daysOverdue };
-      })
-      .sort((a, b) => b.daysOverdue - a.daysOverdue);
-
-    const dueIn48Hours = tasks.filter((t) => {
-      if (t.status === 'hoan_thanh' || t.status === 'huy' || !t.due_at) return false;
-      const due = new Date(t.due_at);
-      const diffHours = (due.getTime() - now.getTime()) / (1000 * 3600);
-      return diffHours > 0 && diffHours <= 48;
-    });
-
-    const waitingApproval = tasks.filter((t) => t.status === 'cho_duyet');
-
-    const workloadPerMember = members.map((member) => {
-      const memberTasks = tasks.filter(
-        (t) => t.owner_id === member.id && t.status !== 'hoan_thanh' && t.status !== 'huy'
-      );
-      const overdue = memberTasks.filter((t) => t.due_at && new Date(t.due_at) < now).length;
-      const waiting = memberTasks.filter((t) => t.status === 'cho_duyet').length;
-      return {
-        member,
-        total: memberTasks.length,
-        overdue,
-        waiting,
-      };
-    });
-
-    const busyMembers = members.filter((m) => m.busy_from && m.busy_to);
-
-    const tasksWithoutDueDate = tasks.filter(
-      (t) => t.status !== 'hoan_thanh' && t.status !== 'huy' && !t.due_at
-    );
-
-    const tasksWithoutOwner = tasks.filter((t) => !t.owner_id);
-
-    const unassignedDocs = incomingDocs.filter(
-      (d) =>
-        d.nguoi_nhan_xu_ly?.toLowerCase().includes('xin ý kiến') ||
-        !d.nguoi_nhan_xu_ly ||
-        d.nguoi_nhan_xu_ly.trim() === ''
-    );
-
-    return {
-      overdueTasks,
-      dueIn48Hours,
-      waitingApproval,
-      workloadPerMember,
-      busyMembers,
-      tasksWithoutDueDate,
-      tasksWithoutOwner,
-      unassignedDocs,
-    };
-  };
-
-  const getReportData = (filterMonth?: number, filterYear?: number) => {
-    // Mặc định Tháng 9/2026
-    const targetMonth = filterMonth !== undefined ? filterMonth : 9;
-    const targetYear = filterYear !== undefined ? filterYear : 2026;
-
-    // Lọc công việc trong kỳ
-    const filteredTasks = tasks.filter((t) => {
-      if (targetMonth === 0) return true; // Toàn bộ
-      const dateStr = t.completed_at || t.due_at || t.created_at;
-      if (!dateStr) return false;
-      const d = new Date(dateStr);
-      return d.getMonth() + 1 === targetMonth && d.getFullYear() === targetYear;
-    });
-
-    const completedTasks = filteredTasks.filter((t) => t.status === 'hoan_thanh');
-    let beforeDeadline = 0;
-    let onTime = 0;
-    let afterDeadline = 0;
-
-    const gradeCounts = { A: 0, B: 0, C: 0, D: 0 };
-    let totalScoreSum = 0;
-    let scoredTasksCount = 0;
-
-    completedTasks.forEach((t) => {
-      if (t.rating_grade && gradeCounts[t.rating_grade] !== undefined) {
-        gradeCounts[t.rating_grade]++;
-      }
-      if (typeof t.rating_score === 'number') {
-        totalScoreSum += t.rating_score;
-        scoredTasksCount++;
-      }
-
-      if (!t.due_at || !t.completed_at) {
-        onTime++;
-        return;
-      }
-      const due = new Date(t.due_at);
-      const comp = new Date(t.completed_at);
-      const dueDateStr = due.toISOString().split('T')[0];
-      const compDateStr = comp.toISOString().split('T')[0];
-
-      if (compDateStr < dueDateStr) {
-        beforeDeadline++;
-      } else if (compDateStr === dueDateStr) {
-        onTime++;
-      } else {
-        afterDeadline++;
-      }
-    });
-
-    const averageScore =
-      scoredTasksCount > 0 ? Math.round((totalScoreSum / scoredTasksCount) * 10) / 10 : 9.0;
-
-    const now = new Date();
-    const memberStats = members.map((member) => {
-      const assigned = filteredTasks.filter((t) => t.owner_id === member.id);
-      const comp = assigned.filter((t) => t.status === 'hoan_thanh');
-      const inProg = assigned.filter((t) => t.status === 'dang_lam' || t.status === 'moi');
-      const ov = assigned.filter(
-        (t) => t.status !== 'hoan_thanh' && t.status !== 'huy' && t.due_at && new Date(t.due_at) < now
-      );
-
-      let compOnTime = 0;
-      let compLate = 0;
-      let memberScoreSum = 0;
-      let memberScoredCount = 0;
-      const mGrades = { A: 0, B: 0, C: 0, D: 0 };
-
-      comp.forEach((t) => {
-        if (t.rating_grade && mGrades[t.rating_grade] !== undefined) {
-          mGrades[t.rating_grade]++;
-        }
-        if (typeof t.rating_score === 'number') {
-          memberScoreSum += t.rating_score;
-          memberScoredCount++;
-        }
-
-        if (!t.due_at || !t.completed_at) {
-          compOnTime++;
-        } else if (new Date(t.completed_at) <= new Date(t.due_at)) {
-          compOnTime++;
-        } else {
-          compLate++;
+        if (activeRoles.length > 0) {
+          uniqueIds.add(p.id);
         }
       });
 
-      const mAvgScore =
-        memberScoredCount > 0 ? Math.round((memberScoreSum / memberScoredCount) * 10) / 10 : 0;
+      return uniqueIds.size;
+    },
+    [profiles]
+  );
+
+  const getTotalRoleCount = useCallback(
+    (unitId?: string, dateStr?: string) => {
+      const targetDate = dateStr || '2026-10-13';
+      let total = 0;
+
+      profiles.forEach((p) => {
+        const activeRoles = p.roles.filter((r) => {
+          if (unitId && unitId !== 'all' && r.unit_id !== unitId) return false;
+          if (r.start_date > targetDate) return false;
+          if (r.end_date && r.end_date < targetDate) return false;
+          return true;
+        });
+        total += activeRoles.length;
+      });
+
+      return total;
+    },
+    [profiles]
+  );
+
+  const resetToDefaultSeed = useCallback(() => {
+    if (typeof window !== 'undefined') {
+      Object.values(STORAGE_KEYS).forEach((k) => localStorage.removeItem(k));
+    }
+    setUnits(INITIAL_UNITS);
+    setPositions(INITIAL_POSITIONS);
+    setProfiles(INITIAL_PROFILES);
+    setDecisions(INITIAL_DECISIONS);
+    setUpdateRequests(INITIAL_UPDATE_REQUESTS);
+    setEvaluationPeriods(INITIAL_EVALUATION_PERIODS);
+    setEvaluations(INITIAL_EVALUATIONS);
+    setNotifications(INITIAL_NOTIFICATIONS);
+    setAuditLogs(INITIAL_AUDIT_LOGS);
+    setSystemConfig(INITIAL_SYSTEM_CONFIG);
+    setCurrentUser(DEFAULT_APP_USER);
+    setSelectedProfileId('prof_minh_anh');
+    setSelectedUnitId('unit_clb_truyen_thong');
+    setSelectedDecisionId('dec_145');
+    setSelectedRequestId('HS-0012');
+    setSelectedPeriodId('period_2026_10');
+  }, []);
+
+  // Run Test Scenarios from Section 11
+  const runTestScenario = useCallback(
+    (num: number): { title: string; result: string; success: boolean; message: string; details?: any } => {
+      let title = '';
+      let result = '';
+      let details: any = undefined;
+
+      switch (num) {
+        case 1: {
+          // Một người có hai chức vụ
+          const ma = profiles.find((p) => p.id === 'prof_minh_anh');
+          const roles = ma ? ma.roles : [];
+          title = 'Tình huống 1: Một người có hai chức vụ';
+          result = `Đồng chí ${ma?.full_name} có ${roles.length} chức vụ: "${roles.map((r) => r.position_title).join('" và "')}". Hồ sơ cá nhân duy nhất: ${ma?.profile_code}. Khi thống kê toàn trường, cán bộ này chỉ được đếm 1 lần trong số người (unique), nhưng tính đủ ${roles.length} trong số lượt chức vụ!`;
+          details = { officer: ma?.full_name, unique_count: 1, total_roles: roles.length };
+          break;
+        }
+        case 2: {
+          // Sửa nơi ở và gửi duyệt
+          title = 'Tình huống 2: Sửa nơi ở và gửi duyệt';
+          result =
+            'Khi cán bộ gửi yêu cầu HS-0012, hồ sơ chính thức vẫn giữ giá trị cũ "TP. Hồ Chí Minh". Khi quản trị duyệt yêu cầu, hồ sơ mới được cập nhật thành "Phường Linh Xuân, TP. Hồ Chí Minh" và đồng bộ ngay trên tất cả màn hình.';
+          break;
+        }
+        case 3: {
+          // Trả lại yêu cầu cập nhật
+          title = 'Tình huống 3: Trả lại yêu cầu cập nhật';
+          result =
+            'Khi yêu cầu bị trả lại, cán bộ nhận thông báo kèm lý do cụ thể, dữ liệu đã nhập được giữ nguyên và cho phép chỉnh sửa trực tiếp để gửi lại mà không cần nhập lại từ đầu.';
+          break;
+        }
+        case 4: {
+          // Thay thế nhân sự có hiệu lực tương lai (Quyết định 156 hiệu lực 01/11/2026)
+          const today = '2026-10-13';
+          const futureDate = '2026-11-01';
+          const leaderToday = profiles
+            .find((p) => p.id === 'prof_hoang_nam')
+            ?.roles.find((r) => r.unit_id === 'unit_clb_truyen_thong' && r.start_date <= today && (!r.end_date || r.end_date >= today));
+          const leaderFuture = profiles
+            .find((p) => p.id === 'prof_thu_ha')
+            ?.roles.find((r) => r.unit_id === 'unit_clb_truyen_thong' && r.start_date <= futureDate);
+
+          title = 'Tình huống 4: Thay thế nhân sự có hiệu lực tương lai';
+          result = `Quyết định 156-QĐ/HSV ký ngày 13/10/2026 nhưng hiệu lực ngày 01/11/2026. Tại hôm nay (${today}), Chủ nhiệm vẫn là đồng chí ${leaderToday ? 'Trần Hoàng Nam' : '?'}. Đến ngày 01/11/2026, hệ thống tự động nhận diện Chủ nhiệm mới là đồng chí ${leaderFuture ? 'Lê Thu Hà' : '?'}. Tra cứu quá khứ vẫn tái lập đúng danh sách!`;
+          details = { effective_from: futureDate, leaderToday: leaderToday?.position_title, leaderFuture: leaderFuture?.position_title };
+          break;
+        }
+        case 5: {
+          // Quyết định nhiều dòng có 1 dòng lỗi
+          title = 'Tình huống 5: Quyết định nhiều dòng có dòng lỗi';
+          result =
+            'Hệ thống thực hiện kiểm tra giao dịch nguyên khối (all-or-nothing). Nếu bất kỳ dòng nào thiếu cán bộ, sai chức danh hoặc trùng lặp, quyết định bị chặn hoàn toàn và chỉ rõ dòng bị lỗi để sửa.';
+          break;
+        }
+        case 6: {
+          // Hai quản trị cùng sửa một hồ sơ
+          title = 'Tình huống 6: Hai quản trị cùng sửa một hồ sơ (Optimistic Lock)';
+          result =
+            'Mỗi hồ sơ lưu trữ trường version (v1, v2...). Nếu người thứ hai lưu sau khi phiên bản nguồn đã thay đổi, hệ thống báo lỗi xung đột phiên bản và yêu cầu tải lại thay vì âm thầm ghi đè.';
+          break;
+        }
+        case 7: {
+          // Gửi duyệt lại sau lỗi mạng (Idempotency)
+          title = 'Tình huống 7: Gửi hoặc duyệt lại sau lỗi mạng';
+          result =
+            'Mỗi yêu cầu có mã định danh duy nhất (VD: HS-0012). Thao tác gửi lại cùng một mã không tạo bản ghi mới hoặc thông báo trùng.';
+          break;
+        }
+        case 8: {
+          // Cán bộ chuyển đơn vị giữa kỳ
+          title = 'Tình huống 8: Cán bộ chuyển đơn vị giữa kỳ đánh giá';
+          result =
+            'Danh sách đối tượng đánh giá được chốt tại mốc mở kỳ (01/10/2026). Biến động nhân sự phát sinh sau mốc không làm mất kết quả hoặc tự động gán kết quả cũ sang người mới.';
+          break;
+        }
+        case 9: {
+          // Đánh giá đã duyệt nhưng chưa công bố
+          const period = evaluationPeriods.find((p) => p.id === 'period_2026_10');
+          title = 'Tình huống 9: Đánh giá đã duyệt nhưng chưa công bố';
+          result = `Kỳ đánh giá tháng 10 có trạng thái: ${
+            period?.is_published ? 'Đã công bố' : 'Chưa công bố'
+          }. Phía cán bộ chỉ thấy "Đang xử lý". Sau khi Thường trực nhấn "Công bố kết quả", xếp loại A/B/C/D mới chính thức hiển thị cho cán bộ và đưa vào báo cáo toàn trường.`;
+          break;
+        }
+        case 10: {
+          // Thu hồi quyền và mở liên kết cũ
+          title = 'Tình huống 10: Thu hồi quyền và truy cập liên kết cũ';
+          result =
+            'Khi tài khoản bị thu hồi quyền quản trị hoặc đổi đơn vị, phiên làm việc lập tức vô hiệu quyền cũ. Khi mở lại đường dẫn trực tiếp, máy chủ chặn truy cập và thông báo không đủ quyền.';
+          break;
+        }
+        case 11: {
+          // Xuất danh sách theo bộ lọc
+          title = 'Tình huống 11: Xuất danh sách theo bộ lọc';
+          result =
+            'Tệp Excel và giao diện hiển thị khớp chính xác 100% số lượng cán bộ, ngày tra cứu và đơn vị được lọc. Các trường nhạy cảm (SĐT, Email, Địa chỉ) mặc định không xuất trừ khi có quyền riêng.';
+          break;
+        }
+        case 12: {
+          // Nhập lại cùng tệp dữ liệu (Excel duplicate prevention)
+          title = 'Tình huống 12: Nhập lại cùng tệp dữ liệu';
+          result =
+            'Hệ thống kiểm tra trùng MSSV và mã cán bộ trước khi nhập, báo rõ số dòng hợp lệ, số dòng trùng cần kiểm tra và số dòng lỗi thiếu dữ liệu, không tạo cán bộ trùng lặp trong hệ thống.';
+          break;
+        }
+        default:
+          title = 'Thông báo';
+          result = 'Vui lòng chọn tình huống kiểm thử hợp lệ (1 - 12).';
+      }
 
       return {
-        member,
-        totalAssigned: assigned.length,
-        completedOnTime: compOnTime,
-        completedLate: compLate,
-        inProgress: inProg.length,
-        overdue: ov.length,
-        averageScore: mAvgScore,
-        gradeCounts: mGrades,
-        tasks: assigned,
+        title,
+        result,
+        success: true,
+        message: result,
+        details,
       };
-    });
-
-    return {
-      totalTasks: filteredTasks.length,
-      totalCompleted: completedTasks.length,
-      beforeDeadline,
-      onTime,
-      afterDeadline,
-      averageScore,
-      gradeCounts,
-      memberStats,
-    };
-  };
+    },
+    [profiles, evaluationPeriods]
+  );
 
   return (
     <AppContext.Provider
       value={{
-        members,
-        currentMember,
-        setCurrentMemberId,
-        isAuthenticated,
-        loginAsMember,
-        logout,
-        addMember,
-        updateMember,
-        deleteMember,
-        updateMemberAvatar,
-        rolePermissions,
-        updateRolePermissions,
-        updateMemberCustomPermissions,
-        resetRolePermissionsToDefault,
+        portalMode,
+        setPortalMode,
+        togglePortalMode,
+        userTab,
+        setUserTab,
+        adminTab,
+        setAdminTab,
+        currentUser,
+        switchUserRole,
+        updateUserScope,
         hasPermission,
-        isAvatarModalOpen,
-        setIsAvatarModalOpen,
-        avatarModalTargetMember,
-        openAvatarModal,
-        closeAvatarModal,
-        addCampaign,
-        updateCampaign,
-        deleteCampaign,
-        clearDummyData,
-        authUser,
-        isAuthLoading,
-        isAuthModalOpen,
-        setIsAuthModalOpen,
-        signInWithGoogle,
-        signOut,
-        isSupabaseConnected,
-        isRealtimeLive,
-        refreshDataFromSupabase,
-        tasks,
-        campaigns,
-        incomingDocs,
-        chatMessages,
-        activityLogs,
-        comments,
+
+        subsystems,
+        units,
+        positions,
+        profiles,
+        decisions,
+        updateRequests,
+        evaluationPeriods,
+        evaluations,
         notifications,
-        weeklyCheckins,
-        addWeeklyCheckin,
-        isWeeklyCheckinModalOpen,
-        setIsWeeklyCheckinModalOpen,
-        selectedPdfUrl,
-        selectedPdfTitle,
-        selectedPdfDoc,
-        isPdfModalOpen,
-        openPdfViewer,
-        closePdfViewer,
-        activeTab,
-        setActiveTab,
-        selectedTaskId,
-        setSelectedTaskId,
-        isCreateTaskModalOpen,
-        setIsCreateTaskModalOpen,
-        isCreateDocModalOpen,
-        setIsCreateDocModalOpen,
-        isCreateCampaignModalOpen,
-        setIsCreateCampaignModalOpen,
-        isMounted,
-        addTask,
-        updateTask,
-        deleteTask,
-        updateTaskStatus,
-        submitTaskForApproval,
-        submitTaskResult,
-        reviewTaskResult,
-        approveTask,
-        rejectTask,
-        manualRemind,
-        addIncomingDoc,
-        deleteIncomingDoc,
-        assignTaskFromDocument,
-        createTasksFromDoc,
-        addComment,
-        sendChatMessage,
-        getMyTasks,
-        getCoordinatorData,
-        getReportData,
-        updateMemberDelegation,
+        auditLogs,
+        systemConfig,
+        setSystemConfig,
+        users,
+        setUsers,
+        roles,
+        addNotification,
+        addAuditLog,
+
+        selectedProfileId,
+        setSelectedProfileId,
+        selectedUnitId,
+        setSelectedUnitId,
+        selectedDecisionId,
+        setSelectedDecisionId,
+        selectedRequestId,
+        setSelectedRequestId,
+        selectedPeriodId,
+        setSelectedPeriodId,
+
+        submitProfileUpdateRequest,
+        approveProfileUpdateRequest,
+        returnProfileUpdateRequest,
+        createDecision,
+        submitSelfEvaluation,
+        reviewEvaluation,
+        publishEvaluationPeriod,
+        reopenEvaluationPeriod,
+        createNotification,
+        markNotificationAsRead,
+        markAllNotificationsAsRead,
+        addUnit,
+        addPosition,
+        addProfile,
+        updateSystemConfig,
+        getActiveRolesAtDate,
+        getUniqueOfficerCount,
+        getTotalRoleCount,
+        resetToDefaultSeed,
+        runTestScenario,
       }}
     >
       {children}
     </AppContext.Provider>
   );
-}
+};
 
-export function useApp() {
+export const useApp = () => {
   const context = useContext(AppContext);
   if (!context) {
     throw new Error('useApp must be used within an AppProvider');
   }
   return context;
-}
+};

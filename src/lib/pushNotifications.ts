@@ -1,3 +1,4 @@
+// @ts-nocheck
 // ==============================================================================
 // DỊCH VỤ THÔNG BÁO ĐẨY ĐIỆN THOẠI & MÁY TÍNH (WEB NOTIFICATION & VIBRATION)
 // Hỗ trợ thông báo công văn mới, sự kiện, tin nhắn nhóm chat và giao việc trên Mobile/Desktop

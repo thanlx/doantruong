@@ -1,7 +1,8 @@
 'use client';
 
 // ==============================================================================
-// MAIN APP PAGE: ĐIỀU PHỐI LAYOUT CHÍNH (DESKTOP & PWA MOBILE CHO 9 Đ/C BTV)
+// MAIN APP PAGE: ĐIỀU PHỐI LAYOUT CHÍNH (HỆ THỐNG QUẢN LÝ CÁN BỘ ĐOÀN - HỘI HCMUTE)
+// Đồng bộ 2 phân vùng: Cán bộ cá nhân (User) & Quản trị hệ thống (Admin)
 // ==============================================================================
 
 import React, { useState } from 'react';
@@ -10,249 +11,151 @@ import Sidebar from '@/components/Sidebar';
 import MobileNavigation from '@/components/MobileNavigation';
 import Header from '@/components/Header';
 import BottomNav from '@/components/BottomNav';
-import LoginPage from '@/components/LoginPage';
 
-// Các màn hình nghiệp vụ
+// User Views
 import DashboardView from '@/components/views/DashboardView';
-import TasksView from '@/components/views/TasksView';
-import MyTasksView from '@/components/views/MyTasksView';
-import CalendarView from '@/components/views/CalendarView';
-import CampaignsView from '@/components/views/CampaignsView';
-import IncomingDocsView from '@/components/views/IncomingDocsView';
-import CoordinatorView from '@/components/views/CoordinatorView';
-import ChatView from '@/components/views/ChatView';
-import MembersView from '@/components/views/MembersView';
-import ReportsView from '@/components/views/ReportsView';
-import IosGuideView from '@/components/views/IosGuideView';
-import SettingsView from '@/components/views/SettingsView';
-import AdminView from '@/components/views/AdminView';
-import FeatureShowcase from '@/components/FeatureShowcase';
-import NotificationBanner from '@/components/NotificationBanner';
+import MyProfileView from '@/components/views/MyProfileView';
+import OrganizationView from '@/components/views/OrganizationView';
+import MyEvaluationView from '@/components/views/MyEvaluationView';
+import DecisionsAndHistoryView from '@/components/views/DecisionsAndHistoryView';
+import NotificationsView from '@/components/views/NotificationsView';
+import MyAccountView from '@/components/views/MyAccountView';
+
+// Admin Views
+import AdminDashboardView from '@/components/views/AdminDashboardView';
+import AdminProfilesView from '@/components/views/AdminProfilesView';
+import AdminOrganizationView from '@/components/views/AdminOrganizationView';
+import AdminDecisionsView from '@/components/views/AdminDecisionsView';
+import AdminApprovalView from '@/components/views/AdminApprovalView';
+import AdminEvaluationsView from '@/components/views/AdminEvaluationsView';
+import AdminReportsView from '@/components/views/AdminReportsView';
+import AdminNotificationsView from '@/components/views/AdminNotificationsView';
+import AdminAccountsView from '@/components/views/AdminAccountsView';
+import AdminConfigView from '@/components/views/AdminConfigView';
+import AdminAuditLogsView from '@/components/views/AdminAuditLogsView';
 
 // Modals
-import TaskDetailModal from '@/components/modals/TaskDetailModal';
-import CreateTaskModal from '@/components/modals/CreateTaskModal';
-import CreateIncomingDocModal from '@/components/modals/CreateIncomingDocModal';
-import CreateCampaignModal from '@/components/modals/CreateCampaignModal';
-import InactivityLockModal from '@/components/InactivityLockModal';
-import PdfViewerModal from '@/components/modals/PdfViewerModal';
-import WeeklyCheckinModal from '@/components/modals/WeeklyCheckinModal';
-import AvatarPickerModal from '@/components/modals/AvatarPickerModal';
-import { ShieldAlert } from 'lucide-react';
+import TestScenarioModal from '@/components/modals/TestScenarioModal';
 
 export default function Home() {
   const {
-    activeTab,
-    setActiveTab,
-    isAuthenticated,
-    isMounted,
-    hasPermission,
-    isCreateDocModalOpen,
-    setIsCreateDocModalOpen,
-    isCreateCampaignModalOpen,
-    setIsCreateCampaignModalOpen,
-    isPdfModalOpen,
-    closePdfViewer,
-    selectedPdfUrl,
-    selectedPdfTitle,
-    selectedPdfDoc,
-    isWeeklyCheckinModalOpen,
-    setIsWeeklyCheckinModalOpen,
+    portalMode,
+    userTab,
+    adminTab,
   } = useApp();
+
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
+  const [isTestModalOpen, setIsTestModalOpen] = useState(false);
 
-  // Lắng nghe tham số URL ?tab= để điều hướng trực tiếp khi người dùng nhấn vào Push Notification
-  React.useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const checkUrlTab = () => {
-        const urlParams = new URLSearchParams(window.location.search);
-        const tab = urlParams.get('tab');
-        if (tab) {
-          setActiveTab(tab);
-        }
-      };
-
-      checkUrlTab();
-      window.addEventListener('popstate', checkUrlTab);
-      return () => window.removeEventListener('popstate', checkUrlTab);
-    }
-  }, [setActiveTab]);
-
-  // Tránh flash khi chưa mount
-  if (!isMounted) {
-    return (
-      <div className="min-h-dvh flex items-center justify-center bg-background text-foreground">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-10 h-10 border-3 border-primary border-t-transparent rounded-full animate-spin" />
-          <p className="text-xs font-semibold text-muted-foreground">Đang tải hệ thống BTV Đoàn trường...</p>
-        </div>
-      </div>
-    );
-  }
-
-  // AUTH GATE: Chặn truy cập trực tiếp khi chưa đăng nhập
-  if (!isAuthenticated) {
-    return <LoginPage />;
-  }
-
-  // Chọn view tương ứng với tab
+  // Render view tương ứng theo portalMode và Tab hiện tại
   const renderCurrentView = () => {
-    switch (activeTab) {
+    if (portalMode === 'admin') {
+      switch (adminTab) {
+        case 'tong_quan':
+          return <AdminDashboardView />;
+        case 'ho_so':
+          return <AdminProfilesView />;
+        case 'to_chuc':
+          return <AdminOrganizationView />;
+        case 'quyet_dinh':
+          return <AdminDecisionsView />;
+        case 'duyet_ho_so':
+          return <AdminApprovalView />;
+        case 'danh_gia':
+          return <AdminEvaluationsView />;
+        case 'bao_cao':
+          return <AdminReportsView />;
+        case 'thong_bao':
+          return <AdminNotificationsView />;
+        case 'phan_quyen':
+          return <AdminAccountsView />;
+        case 'cau_hinh':
+          return <AdminConfigView />;
+        case 'nhat_ky':
+          return <AdminAuditLogsView />;
+        default:
+          return <AdminDashboardView />;
+      }
+    }
+
+    // Portal User
+    switch (userTab) {
       case 'trang_chu':
         return <DashboardView />;
-      case 'cong_viec':
-        return <TasksView />;
-      case 'viec_cua_toi':
-        return <MyTasksView />;
-      case 'lich':
-        return <CalendarView />;
-      case 'du_an':
-        return <CampaignsView />;
-      case 'van_ban_den':
-        return <IncomingDocsView />;
-      case 'dieu_phoi':
-        if (!hasPermission('access_coordinator')) {
-          return (
-            <div className="bg-card rounded-3xl p-8 border border-border text-center max-w-lg mx-auto my-12 space-y-4 shadow-sm animate-in fade-in">
-              <div className="w-14 h-14 rounded-2xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center mx-auto">
-                <ShieldAlert className="w-7 h-7" />
-              </div>
-              <div>
-                <h3 className="text-base font-bold text-foreground">Giới hạn Bảng điều phối</h3>
-                <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
-                  Bảng điều phối và ma trận đôn đốc tiến độ chỉ dành cho Thường trực Đoàn trường và Chánh văn phòng.
-                </p>
-              </div>
-              <button
-                onClick={() => setActiveTab('trang_chu')}
-                className="px-5 py-2.5 rounded-xl bg-primary text-primary-foreground text-xs font-bold shadow-xs hover:bg-primary/90 transition-all cursor-pointer"
-              >
-                Về Bảng tin Tổng quan
-              </button>
-            </div>
-          );
-        }
-        return <CoordinatorView />;
-      case 'chat':
-        return <ChatView />;
-      case 'thanh_vien':
-        return <MembersView />;
-      case 'admin':
-        if (!hasPermission('access_admin_portal')) {
-          return (
-            <div className="bg-card rounded-3xl p-8 border border-border text-center max-w-lg mx-auto my-12 space-y-4 shadow-sm animate-in fade-in">
-              <div className="w-14 h-14 rounded-2xl bg-destructive/10 text-destructive flex items-center justify-center mx-auto">
-                <ShieldAlert className="w-7 h-7" />
-              </div>
-              <div>
-                <h3 className="text-base font-bold text-foreground">Khu vực Giới hạn Quyền Quản trị</h3>
-                <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
-                  Khu vực Quản trị Admin chỉ dành cho Thường trực Đoàn trường và các đồng chí được cấp quyền quản trị hệ thống.
-                </p>
-              </div>
-              <button
-                onClick={() => setActiveTab('trang_chu')}
-                className="px-5 py-2.5 rounded-xl bg-primary text-primary-foreground text-xs font-bold shadow-xs hover:bg-primary/90 transition-all cursor-pointer"
-              >
-                Quay về Bảng điều khiển chính
-              </button>
-            </div>
-          );
-        }
-        return <AdminView />;
-      case 'bao_cao':
-        if (!hasPermission('view_reports_kpi')) {
-          return (
-            <div className="bg-card rounded-3xl p-8 border border-border text-center max-w-lg mx-auto my-12 space-y-4 shadow-sm animate-in fade-in">
-              <div className="w-14 h-14 rounded-2xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center mx-auto">
-                <ShieldAlert className="w-7 h-7" />
-              </div>
-              <div>
-                <h3 className="text-base font-bold text-foreground">Giới hạn Báo cáo & Đánh giá KPI</h3>
-                <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
-                  Phân hệ Báo cáo & Thống kê KPI tiến độ chỉ dành cho các đồng chí được cấp quyền theo dõi tổng hợp.
-                </p>
-              </div>
-              <button
-                onClick={() => setActiveTab('trang_chu')}
-                className="px-5 py-2.5 rounded-xl bg-primary text-primary-foreground text-xs font-bold shadow-xs hover:bg-primary/90 transition-all cursor-pointer"
-              >
-                Về Bảng tin Tổng quan
-              </button>
-            </div>
-          );
-        }
-        return <ReportsView />;
-      case 'huong_dan_ios':
-        return <IosGuideView />;
-      case 'thiet_ke':
-        return <FeatureShowcase />;
-      case 'cai_dat':
-        return <SettingsView />;
+      case 'ho_so':
+        return <MyProfileView />;
+      case 'to_chuc':
+        return <OrganizationView />;
+      case 'danh_gia':
+        return <MyEvaluationView />;
+      case 'quyet_dinh':
+        return <DecisionsAndHistoryView />;
+      case 'thong_bao':
+        return <NotificationsView />;
+      case 'tai_khoan':
+        return <MyAccountView />;
       default:
         return <DashboardView />;
     }
   };
 
   return (
-    <div className="app-shell flex flex-col h-dvh overflow-hidden text-foreground">
+    <div className="app-shell flex flex-col h-dvh overflow-hidden text-foreground bg-background">
       <a href="#main-content" className="skip-link">Đến nội dung chính</a>
+
+      {/* Brand banner logo trường HCMUTE */}
       <div className="brand-banner" aria-label="Đoàn trường HCMUTE — Tuổi trẻ hôm nay, kiến tạo ngày mai">
-        <img src="/images/header-brand.png" alt="Đoàn trường HCMUTE — Tuổi trẻ hôm nay, kiến tạo ngày mai" width={1536} height={92} className="brand-banner-image" />
+        <img
+          src="/images/header-brand.png"
+          alt="Đoàn trường HCMUTE — Tuổi trẻ hôm nay, kiến tạo ngày mai"
+          width={1536}
+          height={92}
+          className="brand-banner-image"
+        />
       </div>
 
       {/* KHUNG ỨNG DỤNG CHÍNH */}
       <div className="app-frame flex flex-1 min-h-0 overflow-hidden relative">
-        {/* 1. SIDEBAR DESKTOP (Ẩn trên mobile) */}
+        {/* 1. SIDEBAR DESKTOP */}
         <div className="hidden md:flex h-full shrink-0">
-          <Sidebar />
+          <Sidebar onNavigate={() => setIsMobileDrawerOpen(false)} />
         </div>
 
-        {/* 2. DRAWER SIDEBAR CHO MOBILE (Khi bấm nút menu trên mobile header) */}
+        {/* 2. DRAWER SIDEBAR CHO MOBILE */}
         {isMobileDrawerOpen && <MobileNavigation onClose={() => setIsMobileDrawerOpen(false)} />}
 
         {/* 3. KHU VỰC NỘI DUNG CHÍNH */}
         <div className="app-workspace flex-1 flex flex-col h-full overflow-hidden min-w-0">
           {/* Header trên đỉnh */}
-          <Header onOpenMobileMenu={() => setIsMobileDrawerOpen(true)} />
+          <Header
+            onOpenMobileMenu={() => setIsMobileDrawerOpen(true)}
+            onOpenTestModal={() => setIsTestModalOpen(true)}
+          />
 
-          {/* Thân cuộn trang chuẩn spacing Section 3.1 & 3.4 */}
-          <main id="main-content" tabIndex={-1} className="app-main flex-1 min-h-0 overflow-y-auto px-3 sm:px-5 pt-4 pb-24 md:pb-6 scrollbar-thin">
-            <div className="view-content w-full max-w-[1600px] mx-auto" data-view={activeTab}>
-              <NotificationBanner />
+          {/* Thân cuộn trang */}
+          <main
+            id="main-content"
+            tabIndex={-1}
+            className="app-main flex-1 min-h-0 overflow-y-auto px-3 sm:px-6 pt-4 pb-24 md:pb-6 scrollbar-thin"
+          >
+            <div
+              className="view-content w-full max-w-[1600px] mx-auto"
+              data-view={portalMode === 'admin' ? adminTab : userTab}
+            >
               {renderCurrentView()}
             </div>
           </main>
         </div>
       </div>
 
-      {/* 4. BOTTOM NAVIGATION CHO MOBILE (Khớp 100% 5 màn hình mẫu) */}
-      <BottomNav />
+      {/* 4. BOTTOM NAVIGATION CHO MOBILE */}
+      <BottomNav onOpenTestModal={() => setIsTestModalOpen(true)} />
 
-      {/* 5. CÁC MODAL HỆ THỐNG */}
-      <InactivityLockModal />
-      <TaskDetailModal />
-      <CreateTaskModal />
-      <CreateIncomingDocModal
-        isOpen={isCreateDocModalOpen}
-        onClose={() => setIsCreateDocModalOpen(false)}
+      {/* 5. MODAL 12 KỊCH BẢN NGHIỆM THU */}
+      <TestScenarioModal
+        isOpen={isTestModalOpen}
+        onClose={() => setIsTestModalOpen(false)}
       />
-      <CreateCampaignModal
-        isOpen={isCreateCampaignModalOpen}
-        onClose={() => setIsCreateCampaignModalOpen(false)}
-      />
-      <PdfViewerModal
-        isOpen={isPdfModalOpen}
-        onClose={closePdfViewer}
-        pdfUrl={selectedPdfUrl}
-        title={selectedPdfTitle || undefined}
-        doc={selectedPdfDoc}
-      />
-      <WeeklyCheckinModal
-        isOpen={isWeeklyCheckinModalOpen}
-        onClose={() => setIsWeeklyCheckinModalOpen(false)}
-      />
-      <AvatarPickerModal />
     </div>
   );
 }

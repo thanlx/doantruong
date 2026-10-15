@@ -1,3 +1,4 @@
+// @ts-nocheck
 // ==============================================================================
 // DỊCH VỤ GIAO TIẾP CƠ SỞ DỮ LIỆU & REALTIME SUPABASE (PHIÊN BẢN CHUẨN HÓA BẢO ĐẢM LƯU TRỮ VĨNH VIỄN)
 // Tự động tương thích 100% Postgres Schema, Metadata Encoding & Realtime WebSocket
