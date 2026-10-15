@@ -2,20 +2,14 @@
 
 import React, { useState } from 'react';
 import { useApp } from '@/context/AppContext';
-import { 
-  History, 
-  Search, 
-  Filter, 
-  Calendar, 
-  Lock, 
-  ArrowRight, 
-  RotateCcw, 
-  User, 
-  Tag, 
-  Building, 
+import {
+  Search,
+  Lock,
+  ArrowRight,
+  User,
+  Tag,
+  Building,
   ChevronRight,
-  CheckCircle,
-  FileText
 } from 'lucide-react';
 import { AuditLog } from '@/types';
 
@@ -25,26 +19,60 @@ export const AdminAuditLogsView: React.FC = () => {
   const [actorFilter, setActorFilter] = useState('all');
   const [actionTypeFilter, setActionTypeFilter] = useState('all');
   const [unitFilter, setUnitFilter] = useState('all');
-  const [fromDate, setFromDate] = useState('2026-10-01');
-  const [toDate, setToDate] = useState('2026-10-13');
+  const [searchText, setSearchText] = useState('');
 
   // Selected log for the right panel (defaults to the first log)
-  const [selectedLog, setSelectedLog] = useState<AuditLog>(auditLogs[0]);
+  const [selectedLogId, setSelectedLogId] = useState<string>(auditLogs[0]?.id || '');
 
-  const filteredLogs = auditLogs.filter(log => {
-    const matchesActor = actorFilter === 'all' || log.actor_code === actorFilter;
+  const filteredLogs = auditLogs.filter((log) => {
+    const actorCode = log.user_mssv || log.actor_code || '';
+    const actorName = log.user_name || log.actor_name || '';
+    const detailsText = log.details || log.description || '';
+    const matchesActor = actorFilter === 'all' || actorCode === actorFilter;
     const matchesType = actionTypeFilter === 'all' || log.action_type === actionTypeFilter;
-    return matchesActor && matchesType;
+    const matchesUnit =
+      unitFilter === 'all' ||
+      detailsText.toLowerCase().includes(unitFilter.toLowerCase()) ||
+      (log.target_name || '').toLowerCase().includes(unitFilter.toLowerCase());
+    const matchesSearch =
+      !searchText.trim() ||
+      detailsText.toLowerCase().includes(searchText.toLowerCase()) ||
+      actorName.toLowerCase().includes(searchText.toLowerCase()) ||
+      (log.target_id || '').toLowerCase().includes(searchText.toLowerCase());
+    return matchesActor && matchesType && matchesUnit && matchesSearch;
   });
+
+  const selectedLog: AuditLog | undefined =
+    filteredLogs.find((l) => l.id === selectedLogId) || filteredLogs[0];
 
   const getActionLabel = (type: string) => {
     switch (type) {
-      case 'APPROVE': return 'Duyệt hồ sơ';
-      case 'REJECT': return 'Trả lại hồ sơ';
-      case 'CREATE': return 'Gửi quyết định';
-      case 'UPDATE': return 'Cập nhật thông tin';
-      case 'EXPORT': return 'Xuất báo cáo';
-      default: return type;
+      case 'APPROVE':
+      case 'duyet_ho_so':
+        return 'Duyệt hồ sơ';
+      case 'REJECT':
+      case 'tra_lai_ho_so':
+        return 'Trả lại hồ sơ';
+      case 'CREATE':
+      case 'gui_quyet_dinh':
+      case 'tao_ho_so':
+        return 'Ban hành / Tạo mới';
+      case 'UPDATE':
+      case 'sua_ho_so':
+        return 'Cập nhật dữ liệu';
+      case 'nhap_excel':
+        return 'Nhập danh sách Excel';
+      case 'doi_mat_khau':
+        return 'Đổi mật khẩu';
+      case 'EXPORT':
+      case 'xuat_bao_cao':
+        return 'Xuất báo cáo';
+      case 'cong_bo_danh_gia':
+        return 'Công bố đánh giá';
+      case 'mo_lai_ky':
+        return 'Mở lại kỳ đánh giá';
+      default:
+        return type;
     }
   };
 
@@ -59,16 +87,18 @@ export const AdminAuditLogsView: React.FC = () => {
             <span className="text-slate-800 font-medium">Nhật ký</span>
           </div>
           <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Nhật ký hoạt động</h1>
-          <p className="text-sm text-slate-500 mt-0.5">Theo dõi lịch sử thao tác của người dùng trong hệ thống.</p>
+          <p className="text-sm text-slate-500 mt-0.5">
+            Theo dõi lịch sử thao tác trực tuyến của toàn bộ tài khoản trong hệ thống.
+          </p>
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-xs px-2.5 py-1 rounded bg-slate-100 text-slate-600 border border-slate-200">
-            Dữ liệu minh họa
+          <span className="text-xs px-2.5 py-1 rounded bg-blue-50 text-[#005BAA] border border-blue-200 font-semibold">
+            Tổng số: {auditLogs.length} bản ghi
           </span>
         </div>
       </div>
 
-      {/* Filter Bar (matching Image 1) */}
+      {/* Filter Bar */}
       <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3 items-end">
           {/* Người thực hiện */}
@@ -82,9 +112,11 @@ export const AdminAuditLogsView: React.FC = () => {
                 className="w-full text-xs border border-slate-200 rounded-lg pl-9 pr-3 py-2 bg-slate-50/50"
               >
                 <option value="all">Tất cả người dùng</option>
-                <option value="23110001">Nguyễn Minh Anh (23110001)</option>
-                <option value="23110002">Trần Hoàng Nam (23110002)</option>
-                <option value="23110003">Lê Thu Hà (23110003)</option>
+                {users.map((u) => (
+                  <option key={u.id} value={u.student_id}>
+                    {u.full_name} ({u.student_id})
+                  </option>
+                ))}
               </select>
             </div>
           </div>
@@ -99,11 +131,13 @@ export const AdminAuditLogsView: React.FC = () => {
                 onChange={(e) => setActionTypeFilter(e.target.value)}
                 className="w-full text-xs border border-slate-200 rounded-lg pl-9 pr-3 py-2 bg-slate-50/50"
               >
-                <option value="all">Tất cả</option>
-                <option value="APPROVE">Duyệt hồ sơ</option>
-                <option value="CREATE">Gửi quyết định / Tạo mới</option>
-                <option value="EXPORT">Xuất báo cáo</option>
-                <option value="UPDATE">Cập nhật</option>
+                <option value="all">Tất cả thao tác</option>
+                <option value="duyet_ho_so">Duyệt hồ sơ</option>
+                <option value="gui_quyet_dinh">Ban hành quyết định</option>
+                <option value="tao_ho_so">Tạo / Sửa hồ sơ</option>
+                <option value="nhap_excel">Nhập Excel</option>
+                <option value="doi_mat_khau">Đổi mật khẩu</option>
+                <option value="xuat_bao_cao">Xuất báo cáo</option>
               </select>
             </div>
           </div>
@@ -119,53 +153,35 @@ export const AdminAuditLogsView: React.FC = () => {
                 className="w-full text-xs border border-slate-200 rounded-lg pl-9 pr-3 py-2 bg-slate-50/50"
               >
                 <option value="all">Tất cả đơn vị</option>
-                <option value="Đoàn cơ sở">Đoàn cơ sở</option>
-                <option value="Liên chi hội">Liên chi hội</option>
-                <option value="CLB Truyền thông">CLB Truyền thông</option>
+                {units.map((u) => (
+                  <option key={u.id} value={u.name}>
+                    {u.name}
+                  </option>
+                ))}
               </select>
             </div>
           </div>
 
-          {/* Từ ngày */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">Từ ngày</label>
+          {/* Từ khóa */}
+          <div className="md:col-span-2">
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Tìm kiếm nội dung thao tác
+            </label>
             <div className="relative">
-              <Calendar className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
-                type="date"
-                value={fromDate}
-                onChange={(e) => setFromDate(e.target.value)}
+                type="text"
+                placeholder="Nhập mã đối tượng, nội dung thay đổi..."
+                value={searchText}
+                onChange={(e) => setSearchText(e.target.value)}
                 className="w-full text-xs border border-slate-200 rounded-lg pl-9 pr-3 py-2 bg-slate-50/50"
               />
             </div>
           </div>
-
-          {/* Đến ngày & Nút tìm kiếm */}
-          <div className="flex items-center gap-2">
-            <div className="flex-1">
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Đến ngày</label>
-              <div className="relative">
-                <Calendar className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                <input
-                  type="date"
-                  value={toDate}
-                  onChange={(e) => setToDate(e.target.value)}
-                  className="w-full text-xs border border-slate-200 rounded-lg pl-9 pr-3 py-2 bg-slate-50/50"
-                />
-              </div>
-            </div>
-            <button
-              onClick={() => {}}
-              className="mt-5 flex items-center justify-center gap-1.5 bg-[#005BAA] hover:bg-[#004785] text-white px-4 py-2 rounded-lg text-xs font-semibold transition-colors"
-            >
-              <Search className="w-3.5 h-3.5" />
-              Tìm kiếm
-            </button>
-          </div>
         </div>
       </div>
 
-      {/* Main Layout: Left Table (7 cols) + Right Detail Panel (5 cols) (Image 1) */}
+      {/* Main Layout: Left Table (7 cols) + Right Detail Panel (5 cols) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Table 7 Cols */}
         <div className="lg:col-span-7 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
@@ -182,135 +198,161 @@ export const AdminAuditLogsView: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredLogs.map((log) => {
-                  const isSelected = selectedLog?.id === log.id;
-                  return (
-                    <tr
-                      key={log.id}
-                      onClick={() => setSelectedLog(log)}
-                      className={`cursor-pointer transition-colors ${
-                        isSelected ? 'bg-blue-50/60' : 'hover:bg-slate-50/50'
-                      }`}
-                    >
-                      <td className="px-4 py-3 text-xs text-slate-600 whitespace-nowrap">
-                        {log.created_at}
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="text-xs font-semibold text-slate-900">{log.actor_name}</div>
-                        <div className="text-[11px] text-slate-400">{log.actor_code}</div>
-                      </td>
-                      <td className="px-4 py-3 text-xs font-medium text-slate-800">
-                        {getActionLabel(log.action_type)}
-                      </td>
-                      <td className="px-4 py-3 text-xs font-mono font-medium text-slate-700">
-                        {log.target_id}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className="text-xs px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 font-medium">
-                          Thành công
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-slate-400">
-                        <div className="flex items-center gap-1 text-xs text-slate-500 max-w-xs truncate">
-                          <span className="truncate">{log.description}</span>
-                          <ChevronRight className="w-4 h-4 shrink-0 text-slate-400" />
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
+                {filteredLogs.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-8 text-center text-xs text-slate-500">
+                      Không tìm thấy bản ghi nhật ký nào phù hợp.
+                    </td>
+                  </tr>
+                ) : (
+                  filteredLogs.map((log) => {
+                    const isSelected = selectedLog?.id === log.id;
+                    return (
+                      <tr
+                        key={log.id}
+                        onClick={() => setSelectedLogId(log.id)}
+                        className={`cursor-pointer transition-colors ${
+                          isSelected ? 'bg-blue-50/60' : 'hover:bg-slate-50/50'
+                        }`}
+                      >
+                        <td className="px-4 py-3 text-xs text-slate-600 whitespace-nowrap">
+                          {log.timestamp || log.created_at}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="text-xs font-semibold text-slate-900">
+                            {log.user_name || log.actor_name}
+                          </div>
+                          <div className="text-[11px] text-slate-400">
+                            {log.user_mssv || log.actor_code}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-xs font-medium text-slate-800">
+                          {log.action_label || getActionLabel(log.action_type)}
+                        </td>
+                        <td className="px-4 py-3 text-xs font-mono font-medium text-slate-700">
+                          {log.target_id}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="text-xs px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 font-medium">
+                            Thành công
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-slate-400">
+                          <div className="flex items-center gap-1 text-xs text-slate-500 max-w-xs truncate">
+                            <span className="truncate">{log.details || log.description}</span>
+                            <ChevronRight className="w-4 h-4 shrink-0 text-slate-400" />
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
               </tbody>
             </table>
           </div>
 
           {/* Pagination bar */}
           <div className="p-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
-            <span>Hiển thị 1–{filteredLogs.length} của {filteredLogs.length} bản ghi</span>
-            <div className="flex items-center gap-1">
-              <button disabled className="px-2 py-1 border border-slate-200 rounded text-slate-400">&lt;</button>
-              <button className="px-2.5 py-1 bg-[#005BAA] text-white rounded font-medium">1</button>
-              <button disabled className="px-2 py-1 border border-slate-200 rounded text-slate-400">&gt;</button>
-            </div>
+            <span>
+              Hiển thị 1–{filteredLogs.length} của {filteredLogs.length} bản ghi
+            </span>
           </div>
         </div>
 
-        {/* Right Panel: Lịch sử thay đổi (Chỉ đọc) (Image 1) */}
+        {/* Right Panel: Lịch sử thay đổi (Chỉ đọc) */}
         {selectedLog && (
           <div className="lg:col-span-5 bg-white rounded-xl border border-slate-200 p-5 shadow-sm space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <h3 className="font-bold text-slate-900 text-sm">Lịch sử thay đổi</h3>
+              <h3 className="font-bold text-slate-900 text-sm">Chi tiết bản ghi nhật ký</h3>
               <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-slate-100 text-slate-600 font-medium border border-slate-200">
                 <Lock className="w-3 h-3 text-slate-400" />
-                Chỉ đọc
+                Chỉ đọc (Bất biến)
               </span>
             </div>
 
             {/* Meta card */}
             <div className="space-y-2 text-xs">
               <div className="flex justify-between items-start">
-                <span className="text-slate-500">Đối tượng:</span>
+                <span className="text-slate-500">Mã đối tượng:</span>
                 <div className="text-right">
-                  <div className="font-bold text-slate-900">{selectedLog.target_id}</div>
-                  <div className="text-[11px] text-slate-400">Hồ sơ cán bộ</div>
+                  <div className="font-bold font-mono text-slate-900">{selectedLog.target_id}</div>
+                  <div className="text-[11px] text-slate-400">
+                    {selectedLog.target_name || selectedLog.target_type}
+                  </div>
                 </div>
               </div>
 
               <div className="flex justify-between items-start">
                 <span className="text-slate-500">Người thực hiện:</span>
                 <div className="text-right">
-                  <div className="font-semibold text-slate-900">{selectedLog.actor_name}</div>
-                  <div className="text-[11px] text-slate-400">{selectedLog.actor_code}</div>
+                  <div className="font-semibold text-slate-900">
+                    {selectedLog.user_name || selectedLog.actor_name}
+                  </div>
+                  <div className="text-[11px] text-slate-400">
+                    {selectedLog.user_mssv || selectedLog.actor_code}
+                  </div>
                 </div>
               </div>
 
               <div className="flex justify-between">
                 <span className="text-slate-500">Thời gian:</span>
-                <span className="text-slate-800 font-medium">{selectedLog.created_at}</span>
+                <span className="text-slate-800 font-medium">
+                  {selectedLog.timestamp || selectedLog.created_at}
+                </span>
               </div>
 
               <div className="flex justify-between">
                 <span className="text-slate-500">Thao tác:</span>
-                <span className="text-slate-800 font-medium">{getActionLabel(selectedLog.action_type)}</span>
-              </div>
-
-              <div className="flex justify-between items-center">
-                <span className="text-slate-500">Phiên bản:</span>
-                <span className="font-mono text-xs font-bold text-[#005BAA] bg-blue-50 px-2 py-0.5 rounded flex items-center gap-1">
-                  1.2 <ArrowRight className="w-3 h-3" /> 1.3
+                <span className="text-slate-800 font-medium">
+                  {selectedLog.action_label || getActionLabel(selectedLog.action_type)}
                 </span>
               </div>
+
+              {selectedLog.version_from && selectedLog.version_to && (
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-500">Phiên bản:</span>
+                  <span className="font-mono text-xs font-bold text-[#005BAA] bg-blue-50 px-2 py-0.5 rounded flex items-center gap-1">
+                    {selectedLog.version_from} <ArrowRight className="w-3 h-3" />{' '}
+                    {selectedLog.version_to}
+                  </span>
+                </div>
+              )}
             </div>
 
-            {/* Chi tiết thay đổi Table (Image 1) */}
-            <div>
-              <h4 className="text-xs font-bold text-slate-900 mb-2">Chi tiết thay đổi</h4>
-              <div className="border border-slate-200 rounded-lg overflow-hidden">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
-                    <tr>
-                      <th className="px-3 py-2">Trường dữ liệu</th>
-                      <th className="px-3 py-2">Giá trị cũ</th>
-                      <th className="px-3 py-2">Giá trị mới</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    <tr>
-                      <td className="px-3 py-2 font-medium text-slate-800">Địa chỉ thường trú</td>
-                      <td className="px-3 py-2 text-slate-500">TP. Hồ Chí Minh</td>
-                      <td className="px-3 py-2 font-medium text-emerald-700 bg-emerald-50/40">
-                        Phường Linh Xuân, TP. Hồ Chí Minh
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
+            {/* Chi tiết thay đổi Table */}
+            {selectedLog.field_changes && selectedLog.field_changes.length > 0 && (
+              <div>
+                <h4 className="text-xs font-bold text-slate-900 mb-2">Chi tiết thay đổi</h4>
+                <div className="border border-slate-200 rounded-lg overflow-hidden">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
+                      <tr>
+                        <th className="px-3 py-2">Trường dữ liệu</th>
+                        <th className="px-3 py-2">Giá trị cũ</th>
+                        <th className="px-3 py-2">Giá trị mới</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {selectedLog.field_changes.map((fc, idx) => (
+                        <tr key={idx}>
+                          <td className="px-3 py-2 font-medium text-slate-800">{fc.field_name}</td>
+                          <td className="px-3 py-2 text-slate-500">{fc.old_value}</td>
+                          <td className="px-3 py-2 font-medium text-emerald-700 bg-emerald-50/40">
+                            {fc.new_value}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
+            )}
 
             {/* Ghi chú */}
             <div className="bg-slate-50 rounded-lg p-3 border border-slate-200 text-xs">
-              <span className="text-slate-500 block mb-1 font-semibold">Ghi chú:</span>
+              <span className="text-slate-500 block mb-1 font-semibold">Nội dung chi tiết:</span>
               <p className="text-slate-700 leading-relaxed">
-                {selectedLog.description || 'Phê duyệt cập nhật thông tin địa chỉ theo hồ sơ đề nghị của cán bộ.'}
+                {selectedLog.details || selectedLog.description || selectedLog.notes}
               </p>
             </div>
           </div>

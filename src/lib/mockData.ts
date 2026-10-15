@@ -438,6 +438,7 @@ export const SUPER_ADMIN_USER: AppUser = {
   full_name: 'Lê Xuân Thân',
   student_id: 'CB-HCMUTE',
   username: 'thanlx',
+  password: 'Hcmute@2026',
   email: 'thanlx@hcmute.edu.vn',
   avatar_code: 'XT',
   roles: ['admin', 'lanh_dao', 'nguoi_duyet', 'quan_ly_don_vi', 'can_bo_ca_nhan'],

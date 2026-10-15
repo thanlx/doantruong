@@ -78,11 +78,15 @@ interface AppContextType {
   updateUserScope: (scopeId: string, scopeName: string) => void;
   hasPermission: (action: string) => boolean;
 
-  // Google Authentication & Security
+  // Google & Password Authentication & Security
   authUser: any;
   isAuthLoading: boolean;
   isAuthenticated: boolean;
   signInWithGoogle: () => Promise<{ error: string | null }>;
+  signInWithPassword: (identifier: string, password: string) => { success: boolean; message: string };
+  changePassword: (currentPassword: string, newPassword: string) => Promise<{ success: boolean; message: string }>;
+  adminResetPassword: (userId: string, newPassword: string) => { success: boolean; message: string };
+  updateCurrentUserAvatar: (avatarUrl: string) => void;
   signOut: () => Promise<void>;
   loginAsSuperAdminDev: () => void;
   isSupabaseConnected: boolean;
@@ -135,6 +139,7 @@ interface AppContextType {
   createDecision: (
     decisionData: Omit<PersonnelDecision, 'id' | 'created_at' | 'created_by'>
   ) => { success: boolean; message: string; errorLineIndex?: number };
+  deleteDecision: (decisionId: string) => { success: boolean; message: string };
   submitSelfEvaluation: (
     evaluationId: string,
     taskResults: string,
@@ -151,16 +156,43 @@ interface AppContextType {
   ) => { success: boolean; message: string };
   publishEvaluationPeriod: (periodId: string) => { success: boolean; message: string };
   reopenEvaluationPeriod: (periodId: string, reason: string) => { success: boolean; message: string };
+  createEvaluationPeriod: (
+    periodData: Omit<EvaluationPeriod, 'id' | 'created_at' | 'total_targets' | 'submitted_count' | 'approved_count'>
+  ) => { success: boolean; message: string };
+  generateEvaluationsForPeriod: (periodId: string) => { success: boolean; message: string; count: number };
   createNotification: (
     notif: Omit<NotificationItem, 'id' | 'created_at' | 'is_read' | 'read_by_user_ids'>
   ) => void;
+  deleteNotification: (id: string) => void;
   markNotificationAsRead: (id: string) => void;
   markAllNotificationsAsRead: () => void;
   addUnit: (unit: Omit<Unit, 'id'>) => void;
+  updateUnit: (unitId: string, updates: Partial<Unit>) => { success: boolean; message: string };
+  deleteUnit: (unitId: string) => { success: boolean; message: string };
   addPosition: (pos: Omit<PositionDefinition, 'id'>) => void;
+  updatePosition: (posId: string, updates: Partial<PositionDefinition>) => { success: boolean; message: string };
+  deletePosition: (posId: string) => { success: boolean; message: string };
   addProfile: (profile: Omit<OfficerProfile, 'id' | 'created_at' | 'updated_at' | 'version'>) => {
     success: boolean;
     message: string;
+  };
+  updateProfile: (profileId: string, updates: Partial<OfficerProfile>) => {
+    success: boolean;
+    message: string;
+  };
+  deleteProfile: (profileId: string) => {
+    success: boolean;
+    message: string;
+  };
+  importProfilesFromExcel: (
+    rows: any[],
+    duplicateMode: 'update' | 'skip'
+  ) => {
+    success: boolean;
+    message: string;
+    addedCount: number;
+    updatedCount: number;
+    skippedCount: number;
   };
   updateSystemConfig: (newConfig: Partial<SystemConfig>) => void;
   getActiveRolesAtDate: (profileId: string, dateStr: string) => any[];
@@ -243,21 +275,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
   const [selectedPeriodId, setSelectedPeriodId] = useState<string>('period_2026_10');
 
-  // Đồng bộ hóa thông tin người dùng Google sang AppUser & phân quyền
-  const syncAuthUserToAppUser = useCallback((user: any, userList: AppUser[]) => {
+  // Đồng bộ hóa thông tin người dùng Google / Mật khẩu sang AppUser & phân quyền
+  const syncAuthUserToAppUser = useCallback((user: any, userList: AppUser[], profileList?: OfficerProfile[]) => {
     const email = (user?.email || '').trim().toLowerCase();
     const isSuper = email === 'thanlx@hcmute.edu.vn' || email === 'lexuanthanspkt@gmail.com';
+
+    const matchedInUsers = userList.find((u) => u.email.trim().toLowerCase() === email);
+    const matchedProfile = (profileList || []).find((p) => p.email?.trim().toLowerCase() === email);
 
     if (isSuper) {
       const superUser: AppUser = {
         id: 'user_thanlx',
         profile_id: 'prof_thanlx',
-        full_name: 'Lê Xuân Thân',
-        student_id: 'CB-HCMUTE',
+        full_name: matchedInUsers?.full_name || 'Lê Xuân Thân',
+        student_id: matchedInUsers?.student_id || 'CB-HCMUTE',
         username: 'thanlx',
+        password: matchedInUsers?.password || 'Hcmute@2026',
         email: user.email || 'thanlx@hcmute.edu.vn',
         avatar_code: 'XT',
-        avatar_url: user.user_metadata?.avatar_url,
+        avatar_url: user.user_metadata?.avatar_url || matchedInUsers?.avatar_url,
         roles: ['admin', 'lanh_dao', 'nguoi_duyet', 'quan_ly_don_vi', 'can_bo_ca_nhan'],
         current_role: 'admin',
         scope_unit_id: 'all',
@@ -270,32 +306,40 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return superUser;
     }
 
-    const matched = userList.find((u) => u.email.trim().toLowerCase() === email);
-    if (matched) {
+    if (matchedInUsers) {
       const updated: AppUser = {
-        ...matched,
-        avatar_url: user.user_metadata?.avatar_url || matched.avatar_url,
-        full_name: matched.full_name || user.user_metadata?.full_name || email,
+        ...matchedInUsers,
+        profile_id: matchedProfile?.id || matchedInUsers.profile_id,
+        student_id: matchedProfile?.student_id || matchedInUsers.student_id,
+        avatar_url: user.user_metadata?.avatar_url || matchedInUsers.avatar_url,
+        full_name: matchedInUsers.full_name || matchedProfile?.full_name || user.user_metadata?.full_name || email,
       };
       setCurrentUser(updated);
       setPortalModeState(updated.roles.includes('admin') ? 'admin' : 'user');
       return updated;
     }
 
-    // Tài khoản Google mới đăng nhập vào hệ thống
+    // Tài khoản Google mới đăng nhập vào hệ thống -> Tự động liên kết hồ sơ nếu khớp email
     const newUser: AppUser = {
       id: `user_${user.id || Date.now()}`,
-      profile_id: `prof_${user.id || Date.now()}`,
-      full_name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'Cán bộ Đoàn - Hội',
-      student_id: user.user_metadata?.student_id || '',
+      profile_id: matchedProfile?.id || `prof_${user.id || Date.now()}`,
+      full_name: matchedProfile?.full_name || user.user_metadata?.full_name || user.email?.split('@')[0] || 'Cán bộ Đoàn - Hội',
+      student_id: matchedProfile?.student_id || user.user_metadata?.student_id || '',
       username: user.email?.split('@')[0] || 'cb_user',
+      password: matchedProfile?.student_id || 'Hcmute@123',
       email: user.email,
-      avatar_code: (user.user_metadata?.full_name || user.email || 'CB').slice(0, 2).toUpperCase(),
-      avatar_url: user.user_metadata?.avatar_url,
+      avatar_code: (matchedProfile?.full_name || user.user_metadata?.full_name || user.email || 'CB')
+        .split(' ')
+        .slice(-2)
+        .map((w: string) => w[0])
+        .join('')
+        .toUpperCase()
+        .slice(0, 2),
+      avatar_url: matchedProfile?.avatar_url || user.user_metadata?.avatar_url,
       roles: ['can_bo_ca_nhan'],
       current_role: 'can_bo_ca_nhan',
-      scope_unit_id: null,
-      scope_unit_name: 'Đoàn trường',
+      scope_unit_id: matchedProfile?.primary_unit_id || null,
+      scope_unit_name: matchedProfile?.roles?.[0]?.unit_name || 'Đoàn trường',
       portal_mode: 'user',
       is_active: true,
     };
@@ -321,14 +365,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const savedAdminTab = localStorage.getItem(STORAGE_KEYS.ADMIN_TAB);
       if (savedAdminTab) setAdminTabState(savedAdminTab as AdminTab);
 
+      let loadedProfiles: OfficerProfile[] = INITIAL_PROFILES;
       const savedProfiles = localStorage.getItem(STORAGE_KEYS.PROFILES);
-      if (savedProfiles) setProfiles(JSON.parse(savedProfiles));
+      if (savedProfiles) {
+        loadedProfiles = JSON.parse(savedProfiles);
+        setProfiles(loadedProfiles);
+      }
+
+      const savedUnits = localStorage.getItem(STORAGE_KEYS.UNITS);
+      if (savedUnits) setUnits(JSON.parse(savedUnits));
+
+      const savedPositions = localStorage.getItem(STORAGE_KEYS.POSITIONS);
+      if (savedPositions) setPositions(JSON.parse(savedPositions));
 
       const savedDecisions = localStorage.getItem(STORAGE_KEYS.DECISIONS);
       if (savedDecisions) setDecisions(JSON.parse(savedDecisions));
 
       const savedRequests = localStorage.getItem(STORAGE_KEYS.REQUESTS);
       if (savedRequests) setUpdateRequests(JSON.parse(savedRequests));
+
+      const savedPeriods = localStorage.getItem(STORAGE_KEYS.PERIODS);
+      if (savedPeriods) setEvaluationPeriods(JSON.parse(savedPeriods));
 
       const savedEvaluations = localStorage.getItem(STORAGE_KEYS.EVALUATIONS);
       if (savedEvaluations) setEvaluations(JSON.parse(savedEvaluations));
@@ -339,6 +396,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const savedAuditLogs = localStorage.getItem(STORAGE_KEYS.AUDIT_LOGS);
       if (savedAuditLogs) setAuditLogs(JSON.parse(savedAuditLogs));
 
+      const savedConfig = localStorage.getItem(STORAGE_KEYS.CONFIG);
+      if (savedConfig) setSystemConfig(JSON.parse(savedConfig));
+
       const savedUsers = localStorage.getItem(STORAGE_KEYS.USERS);
       let loadedUsers: AppUser[] = INITIAL_USERS;
       if (savedUsers) {
@@ -346,6 +406,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           loadedUsers = JSON.parse(savedUsers);
           if (!loadedUsers.some((u) => u.email.toLowerCase() === 'thanlx@hcmute.edu.vn')) {
             loadedUsers.unshift(SUPER_ADMIN_USER);
+          } else {
+            loadedUsers = loadedUsers.map((u) =>
+              u.email.toLowerCase() === 'thanlx@hcmute.edu.vn' && !u.password
+                ? { ...u, password: SUPER_ADMIN_USER.password }
+                : u
+            );
           }
           setUsers(loadedUsers);
         } catch (e) {}
@@ -356,13 +422,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         supabase.auth.getSession().then(({ data: { session } }) => {
           if (session?.user) {
             setAuthUser(session.user);
-            syncAuthUserToAppUser(session.user, loadedUsers);
+            syncAuthUserToAppUser(session.user, loadedUsers, loadedProfiles);
           } else {
             const devEmail = localStorage.getItem('qncb_dev_session');
             if (devEmail) {
-              const mockDev = { email: devEmail, user_metadata: { full_name: 'Lê Xuân Thân' } };
+              const foundUser = loadedUsers.find((u) => u.email.toLowerCase() === devEmail.toLowerCase());
+              const mockDev = {
+                email: devEmail,
+                user_metadata: {
+                  full_name: foundUser?.full_name || 'Lê Xuân Thân',
+                  avatar_url: foundUser?.avatar_url,
+                },
+              };
               setAuthUser(mockDev);
-              syncAuthUserToAppUser(mockDev, loadedUsers);
+              syncAuthUserToAppUser(mockDev, loadedUsers, loadedProfiles);
             }
           }
           setIsAuthLoading(false);
@@ -373,11 +446,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         } = supabase.auth.onAuthStateChange((_event, session) => {
           if (session?.user) {
             setAuthUser(session.user);
-            syncAuthUserToAppUser(session.user, loadedUsers);
+            syncAuthUserToAppUser(session.user, loadedUsers, loadedProfiles);
           } else {
             const devEmail = localStorage.getItem('qncb_dev_session');
             if (devEmail) {
-              const mockDev = { email: devEmail, user_metadata: { full_name: 'Lê Xuân Thân' } };
+              const foundUser = loadedUsers.find((u) => u.email.toLowerCase() === devEmail.toLowerCase());
+              const mockDev = {
+                email: devEmail,
+                user_metadata: {
+                  full_name: foundUser?.full_name || 'Lê Xuân Thân',
+                  avatar_url: foundUser?.avatar_url,
+                },
+              };
               setAuthUser(mockDev);
             } else {
               setAuthUser(null);
@@ -392,9 +472,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       } else {
         const devEmail = localStorage.getItem('qncb_dev_session');
         if (devEmail) {
-          const mockDev = { email: devEmail, user_metadata: { full_name: 'Lê Xuân Thân' } };
+          const foundUser = loadedUsers.find((u) => u.email.toLowerCase() === devEmail.toLowerCase());
+          const mockDev = {
+            email: devEmail,
+            user_metadata: {
+              full_name: foundUser?.full_name || 'Lê Xuân Thân',
+              avatar_url: foundUser?.avatar_url,
+            },
+          };
           setAuthUser(mockDev);
-          syncAuthUserToAppUser(mockDev, loadedUsers);
+          syncAuthUserToAppUser(mockDev, loadedUsers, loadedProfiles);
         }
         setIsAuthLoading(false);
       }
@@ -412,6 +499,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
+    localStorage.setItem(STORAGE_KEYS.UNITS, JSON.stringify(units));
+  }, [units]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    localStorage.setItem(STORAGE_KEYS.POSITIONS, JSON.stringify(positions));
+  }, [positions]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
     localStorage.setItem(STORAGE_KEYS.DECISIONS, JSON.stringify(decisions));
   }, [decisions]);
 
@@ -419,6 +516,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (typeof window === 'undefined') return;
     localStorage.setItem(STORAGE_KEYS.REQUESTS, JSON.stringify(updateRequests));
   }, [updateRequests]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    localStorage.setItem(STORAGE_KEYS.PERIODS, JSON.stringify(evaluationPeriods));
+  }, [evaluationPeriods]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -437,13 +539,217 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
+    localStorage.setItem(STORAGE_KEYS.CONFIG, JSON.stringify(systemConfig));
+  }, [systemConfig]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
     localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
   }, [users]);
 
-  // Google OAuth Actions
+  // Google & Password Auth Actions
   const signInWithGoogle = useCallback(async () => {
     return await signInWithGoogleOAuth();
   }, []);
+
+  const signInWithPassword = useCallback(
+    (identifier: string, password: string): { success: boolean; message: string } => {
+      const cleanId = identifier.trim().toLowerCase();
+      if (!cleanId || !password) {
+        return { success: false, message: 'Vui lòng nhập đầy đủ tài khoản (Email/MSSV/Username) và mật khẩu.' };
+      }
+
+      // Tìm trong danh sách users
+      let matchedUser = users.find(
+        (u) =>
+          u.email.trim().toLowerCase() === cleanId ||
+          (u.username && u.username.trim().toLowerCase() === cleanId) ||
+          (u.student_id && u.student_id.trim().toLowerCase() === cleanId)
+      );
+
+      // Nếu chưa có trong users nhưng có trong danh sách hồ sơ cán bộ (nhập từ Excel)
+      if (!matchedUser) {
+        const matchedProfile = profiles.find(
+          (p) =>
+            p.email?.trim().toLowerCase() === cleanId ||
+            p.student_id?.trim().toLowerCase() === cleanId ||
+            p.profile_code?.trim().toLowerCase() === cleanId
+        );
+        if (matchedProfile) {
+          const defaultPass = matchedProfile.student_id || 'Hcmute@123';
+          if (password !== defaultPass && password !== 'Hcmute@2026') {
+            return {
+              success: false,
+              message: `Mật khẩu không chính xác. (Mật khẩu mặc định của cán bộ mới là MSSV hoặc Hcmute@123)`,
+            };
+          }
+          const createdUser: AppUser = {
+            id: `user_${matchedProfile.id}`,
+            profile_id: matchedProfile.id,
+            full_name: matchedProfile.full_name,
+            student_id: matchedProfile.student_id || '',
+            username: matchedProfile.email?.split('@')[0] || matchedProfile.student_id || 'canbo',
+            password: password,
+            email: matchedProfile.email || `${matchedProfile.student_id}@student.hcmute.edu.vn`,
+            avatar_code: matchedProfile.full_name
+              .split(' ')
+              .slice(-2)
+              .map((w) => w[0])
+              .join('')
+              .toUpperCase()
+              .slice(0, 2),
+            avatar_url: matchedProfile.avatar_url,
+            roles: ['can_bo_ca_nhan'],
+            current_role: 'can_bo_ca_nhan',
+            scope_unit_id: matchedProfile.primary_unit_id,
+            scope_unit_name: matchedProfile.roles?.[0]?.unit_name || 'Đoàn trường',
+            portal_mode: 'user',
+            is_active: true,
+          };
+          const nextUsers = [...users, createdUser];
+          setUsers(nextUsers);
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('qncb_dev_session', createdUser.email);
+            localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(nextUsers));
+          }
+          const sessionObj = {
+            email: createdUser.email,
+            user_metadata: { full_name: createdUser.full_name, avatar_url: createdUser.avatar_url },
+          };
+          setAuthUser(sessionObj);
+          syncAuthUserToAppUser(sessionObj, nextUsers, profiles);
+          return { success: true, message: `Đăng nhập thành công! Xin chào ${createdUser.full_name}.` };
+        }
+
+        return {
+          success: false,
+          message: 'Không tìm thấy tài khoản hoặc hồ sơ cán bộ khớp với thông tin đăng nhập.',
+        };
+      }
+
+      if (matchedUser.is_active === false) {
+        return {
+          success: false,
+          message: 'Tài khoản này hiện đang bị tạm khóa. Vui lòng liên hệ Quản trị viên Đoàn trường.',
+        };
+      }
+
+      const expectedPassword = matchedUser.password || matchedUser.student_id || 'Hcmute@2026';
+      if (password !== expectedPassword) {
+        return {
+          success: false,
+          message: 'Mật khẩu không chính xác. Vui lòng kiểm tra lại.',
+        };
+      }
+
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('qncb_dev_session', matchedUser.email);
+      }
+      const sessionObj = {
+        email: matchedUser.email,
+        user_metadata: { full_name: matchedUser.full_name, avatar_url: matchedUser.avatar_url },
+      };
+      setAuthUser(sessionObj);
+      syncAuthUserToAppUser(sessionObj, users, profiles);
+      return { success: true, message: `Đăng nhập thành công! Xin chào ${matchedUser.full_name}.` };
+    },
+    [users, profiles, syncAuthUserToAppUser]
+  );
+
+  const changePassword = useCallback(
+    async (currentPassword: string, newPassword: string): Promise<{ success: boolean; message: string }> => {
+      if (!newPassword || newPassword.length < 6) {
+        return { success: false, message: 'Mật khẩu mới phải có ít nhất 6 ký tự.' };
+      }
+
+      const targetUser = users.find(
+        (u) => u.id === currentUser.id || u.email.toLowerCase() === currentUser.email.toLowerCase()
+      );
+      const currentExpected = targetUser?.password || currentUser.password || 'Hcmute@2026';
+
+      // Cho phép đổi nếu nhập đúng mật khẩu hiện tại (hoặc tài khoản Google lần đầu thiết lập mật khẩu chưa biết mật khẩu cũ)
+      if (currentPassword && targetUser?.password && currentPassword !== currentExpected) {
+        return { success: false, message: 'Mật khẩu hiện tại không chính xác!' };
+      }
+
+      // Nếu đang có phiên Supabase thực, cập nhật lên Supabase Auth luôn
+      if (supabase && isSupabaseConfigured) {
+        try {
+          const { data } = await supabase.auth.getSession();
+          if (data.session) {
+            await supabase.auth.updateUser({ password: newPassword });
+          }
+        } catch (err) {
+          // Ignore if OAuth session doesn't support direct password update without reauth
+        }
+      }
+
+      const updatedUsers = users.map((u) => {
+        if (u.id === currentUser.id || u.email.toLowerCase() === currentUser.email.toLowerCase()) {
+          return { ...u, password: newPassword };
+        }
+        return u;
+      });
+
+      setUsers(updatedUsers);
+      setCurrentUser((prev) => ({ ...prev, password: newPassword }));
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(updatedUsers));
+      }
+
+      return {
+        success: true,
+        message: 'Đã thay đổi mật khẩu đăng nhập thành công! Bạn có thể dùng mật khẩu mới cho các lần đăng nhập tiếp theo.',
+      };
+    },
+    [users, currentUser]
+  );
+
+  const adminResetPassword = useCallback(
+    (userId: string, newPassword: string): { success: boolean; message: string } => {
+      if (!newPassword || newPassword.length < 6) {
+        return { success: false, message: 'Mật khẩu mới phải có ít nhất 6 ký tự.' };
+      }
+      const target = users.find((u) => u.id === userId);
+      if (!target) {
+        return { success: false, message: 'Không tìm thấy tài khoản người dùng.' };
+      }
+      const updatedUsers = users.map((u) => (u.id === userId ? { ...u, password: newPassword } : u));
+      setUsers(updatedUsers);
+      if (currentUser.id === userId) {
+        setCurrentUser((prev) => ({ ...prev, password: newPassword }));
+      }
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(updatedUsers));
+      }
+      return {
+        success: true,
+        message: `Đã đặt lại mật khẩu mới cho tài khoản ${target.full_name} (${target.email}) thành công!`,
+      };
+    },
+    [users, currentUser.id]
+  );
+
+  const updateCurrentUserAvatar = useCallback(
+    (avatarUrl: string) => {
+      setCurrentUser((prev) => ({ ...prev, avatar_url: avatarUrl }));
+      setUsers((prev) =>
+        prev.map((u) =>
+          u.id === currentUser.id || u.email.toLowerCase() === currentUser.email.toLowerCase()
+            ? { ...u, avatar_url: avatarUrl }
+            : u
+        )
+      );
+      setProfiles((prev) =>
+        prev.map((p) =>
+          p.id === currentUser.profile_id || p.email.toLowerCase() === currentUser.email.toLowerCase()
+            ? { ...p, avatar_url: avatarUrl }
+            : p
+        )
+      );
+    },
+    [currentUser.id, currentUser.email, currentUser.profile_id]
+  );
 
   const signOut = useCallback(async () => {
     if (typeof window !== 'undefined') {
@@ -461,8 +767,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
     const devUser = { email: 'thanlx@hcmute.edu.vn', user_metadata: { full_name: 'Lê Xuân Thân' } };
     setAuthUser(devUser);
-    syncAuthUserToAppUser(devUser, users);
-  }, [syncAuthUserToAppUser, users]);
+    syncAuthUserToAppUser(devUser, users, profiles);
+  }, [syncAuthUserToAppUser, users, profiles]);
 
   // Save changes to localStorage
   const setPortalMode = useCallback((mode: 'user' | 'admin') => {
@@ -959,7 +1265,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     [decisions, profiles, currentUser, logActivity]
   );
 
-  // 5. Submit Self Evaluation
+  const deleteDecision = useCallback(
+    (decisionId: string) => {
+      const target = decisions.find((d) => d.id === decisionId);
+      if (!target) return { success: false, message: 'Không tìm thấy quyết định cần xóa.' };
+
+      const nextDecisions = decisions.filter((d) => d.id !== decisionId);
+      setDecisions(nextDecisions);
+      if (selectedDecisionId === decisionId) setSelectedDecisionId(null);
+
+      logActivity(
+        'gui_quyet_dinh',
+        'Xóa quyết định nhân sự',
+        decisionId,
+        target.decision_number,
+        'Quyết định nhân sự',
+        `Xóa quyết định số ${target.decision_number} (${target.title}).`
+      );
+
+      return { success: true, message: `Đã xóa quyết định ${target.decision_number}.` };
+    },
+    [decisions, selectedDecisionId, logActivity]
+  );
+
+  // 5. Submit Self Evaluation (Upsert if not yet generated)
   const submitSelfEvaluation = useCallback(
     (
       evaluationId: string,
@@ -967,39 +1296,75 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       limitations: string,
       evidenceFiles: { name: string; size: string }[]
     ) => {
-      const evalItem = evaluations.find((e) => e.id === evaluationId);
-      if (!evalItem) return { success: false, message: 'Không tìm thấy phiếu đánh giá' };
+      const existing = evaluations.find((e) => e.id === evaluationId);
+      const nowTime = new Date().toLocaleDateString('vi-VN') + ' ' + new Date().toLocaleTimeString('vi-VN');
 
-      const updated = evaluations.map((e) =>
-        e.id === evaluationId
-          ? {
-              ...e,
-              task_results: taskResults,
-              limitations_mitigation: limitations,
-              evidence_files: evidenceFiles,
-              status: 'submitted' as const,
-              submitted_at: new Date().toLocaleDateString('vi-VN') + ' ' + new Date().toLocaleTimeString('vi-VN'),
-            }
-          : e
-      );
+      if (existing) {
+        const updated = evaluations.map((e) =>
+          e.id === evaluationId
+            ? {
+                ...e,
+                task_results: taskResults,
+                limitations_mitigation: limitations,
+                evidence_files: evidenceFiles,
+                status: 'submitted' as const,
+                submitted_at: nowTime,
+              }
+            : e
+        );
+        setEvaluations(updated);
 
-      setEvaluations(updated);
-      if (typeof window !== 'undefined') {
-        localStorage.setItem(STORAGE_KEYS.EVALUATIONS, JSON.stringify(updated));
+        logActivity(
+          'sua_ho_so',
+          'Gửi tự đánh giá tháng',
+          evaluationId,
+          existing.position_title,
+          'Đánh giá hằng tháng',
+          `Cán bộ ${existing.profile_name} đã gửi phiếu tự đánh giá chức vụ ${existing.position_title}.`
+        );
+      } else {
+        // Tạo mới phiếu tự đánh giá cho người dùng hiện tại nếu chưa có trong danh sách
+        const userProf =
+          profiles.find((p) => p.id === currentUser.profile_id) ||
+          profiles.find((p) => p.email.toLowerCase() === currentUser.email.toLowerCase());
+        const activePeriod = evaluationPeriods.find((p) => p.id === selectedPeriodId) || evaluationPeriods[0];
+        const primaryRole = userProf?.roles?.[0];
+
+        const newEval: MonthlyEvaluation = {
+          id: evaluationId || `eval_${Date.now()}`,
+          period_id: activePeriod?.id || 'period_2026_10',
+          month_year: activePeriod?.month_year || '10/2026',
+          profile_id: userProf?.id || currentUser.profile_id,
+          profile_name: userProf?.full_name || currentUser.full_name,
+          student_id: userProf?.student_id || currentUser.student_id || 'CB-HCMUTE',
+          role_assignment_id: primaryRole?.id || 'role_default',
+          unit_id: primaryRole?.unit_id || userProf?.primary_unit_id || 'unit_doan_truong',
+          unit_name: primaryRole?.unit_name || currentUser.scope_unit_name || 'Đoàn trường',
+          position_title: primaryRole?.position_title || 'Cán bộ Đoàn - Hội',
+          task_results: taskResults,
+          limitations_mitigation: limitations,
+          evidence_files: evidenceFiles,
+          proposed_grade: null,
+          approved_grade: null,
+          status: 'submitted',
+          submitted_at: nowTime,
+        };
+
+        setEvaluations((prev) => [newEval, ...prev]);
+
+        logActivity(
+          'sua_ho_so',
+          'Gửi tự đánh giá tháng',
+          newEval.id,
+          newEval.position_title,
+          'Đánh giá hằng tháng',
+          `Cán bộ ${newEval.profile_name} đã khởi tạo và gửi phiếu tự đánh giá chức vụ ${newEval.position_title}.`
+        );
       }
-
-      logActivity(
-        'sua_ho_so',
-        'Gửi tự đánh giá tháng',
-        evaluationId,
-        evalItem.position_title,
-        'Đánh giá hằng tháng',
-        `Cán bộ ${evalItem.profile_name} đã gửi phiếu tự đánh giá chức vụ ${evalItem.position_title}.`
-      );
 
       return { success: true, message: 'Đã gửi bài tự đánh giá thành công!' };
     },
-    [evaluations, logActivity]
+    [evaluations, profiles, currentUser, evaluationPeriods, selectedPeriodId, logActivity]
   );
 
   // 6. Review Monthly Evaluation
@@ -1030,9 +1395,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       );
 
       setEvaluations(updated);
-      if (typeof window !== 'undefined') {
-        localStorage.setItem(STORAGE_KEYS.EVALUATIONS, JSON.stringify(updated));
-      }
 
       logActivity(
         'duyet_ho_so',
@@ -1129,6 +1491,119 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     [evaluationPeriods, logActivity]
   );
 
+  const createEvaluationPeriod = useCallback(
+    (
+      periodData: Omit<
+        EvaluationPeriod,
+        'id' | 'created_at' | 'total_targets' | 'submitted_count' | 'approved_count'
+      >
+    ) => {
+      const id = `period_${periodData.year_number}_${String(periodData.month_number).padStart(2, '0')}`;
+      if (evaluationPeriods.some((p) => p.id === id || p.month_year === periodData.month_year)) {
+        return { success: false, message: `Kỳ đánh giá tháng ${periodData.month_year} đã tồn tại!` };
+      }
+
+      const newPeriod: EvaluationPeriod = {
+        ...periodData,
+        id,
+        total_targets: profiles.length,
+        submitted_count: 0,
+        approved_count: 0,
+        created_at: new Date().toLocaleDateString('vi-VN'),
+      };
+
+      setEvaluationPeriods((prev) => [newPeriod, ...prev]);
+      setSelectedPeriodId(id);
+
+      logActivity(
+        'cong_bo_danh_gia',
+        'Mở kỳ đánh giá tháng mới',
+        id,
+        newPeriod.title,
+        'Kỳ đánh giá',
+        `Khởi tạo kỳ đánh giá ${newPeriod.month_year} (${newPeriod.title}).`
+      );
+
+      return { success: true, message: `Đã tạo kỳ đánh giá ${newPeriod.month_year} thành công!` };
+    },
+    [evaluationPeriods, profiles.length, logActivity]
+  );
+
+  const generateEvaluationsForPeriod = useCallback(
+    (periodId: string) => {
+      const period = evaluationPeriods.find((p) => p.id === periodId);
+      if (!period) return { success: false, message: 'Không tìm thấy kỳ đánh giá.', count: 0 };
+
+      let addedCount = 0;
+      const newSheets: MonthlyEvaluation[] = [];
+
+      profiles.forEach((prof) => {
+        const activeRoles = prof.roles?.filter((r) => r.status === 'active') || [];
+        const rolesToUse =
+          activeRoles.length > 0
+            ? activeRoles
+            : [
+                {
+                  id: `role_${prof.id}`,
+                  unit_id: prof.primary_unit_id || 'unit_doan_truong',
+                  unit_name:
+                    units.find((u) => u.id === prof.primary_unit_id)?.name || 'Đoàn trường',
+                  position_title: 'Cán bộ Đoàn - Hội',
+                },
+              ];
+
+        rolesToUse.forEach((role) => {
+          const exists = evaluations.some(
+            (e) =>
+              e.period_id === periodId &&
+              e.profile_id === prof.id &&
+              e.position_title === role.position_title
+          );
+          if (!exists) {
+            addedCount++;
+            newSheets.push({
+              id: `eval_${periodId}_${prof.id}_${addedCount}_${Date.now()}`,
+              period_id: periodId,
+              month_year: period.month_year,
+              profile_id: prof.id,
+              profile_name: prof.full_name,
+              student_id: prof.student_id || prof.staff_id || 'CB-HCMUTE',
+              role_assignment_id: role.id,
+              unit_id: role.unit_id,
+              unit_name: role.unit_name,
+              position_title: role.position_title,
+              task_results: '',
+              limitations_mitigation: '',
+              evidence_files: [],
+              proposed_grade: null,
+              approved_grade: null,
+              status: 'not_submitted',
+            });
+          }
+        });
+      });
+
+      if (addedCount > 0) {
+        setEvaluations((prev) => [...prev, ...newSheets]);
+        setEvaluationPeriods((prev) =>
+          prev.map((p) =>
+            p.id === periodId ? { ...p, total_targets: p.total_targets + addedCount } : p
+          )
+        );
+      }
+
+      return {
+        success: true,
+        message:
+          addedCount > 0
+            ? `Đã khởi tạo ${addedCount} phiếu đánh giá cho toàn bộ cán bộ đương nhiệm trong kỳ ${period.month_year}!`
+            : `Tất cả cán bộ đương nhiệm đều đã có phiếu đánh giá trong kỳ ${period.month_year}.`,
+        count: addedCount,
+      };
+    },
+    [evaluationPeriods, profiles, units, evaluations]
+  );
+
   // 9. Notification operations
   const createNotification = useCallback(
     (notifData: Omit<NotificationItem, 'id' | 'created_at' | 'is_read' | 'read_by_user_ids'>) => {
@@ -1139,29 +1614,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         is_read: false,
         read_by_user_ids: [],
       };
-      setNotifications((prev) => {
-        const next = [newNotif, ...prev];
-        if (typeof window !== 'undefined') localStorage.setItem(STORAGE_KEYS.NOTIFICATIONS, JSON.stringify(next));
-        return next;
-      });
+      setNotifications((prev) => [newNotif, ...prev]);
     },
     []
   );
 
+  const deleteNotification = useCallback((id: string) => {
+    setNotifications((prev) => prev.filter((n) => n.id !== id));
+  }, []);
+
   const markNotificationAsRead = useCallback((id: string) => {
-    setNotifications((prev) => {
-      const next = prev.map((n) => (n.id === id ? { ...n, is_read: true } : n));
-      if (typeof window !== 'undefined') localStorage.setItem(STORAGE_KEYS.NOTIFICATIONS, JSON.stringify(next));
-      return next;
-    });
+    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, is_read: true } : n)));
   }, []);
 
   const markAllNotificationsAsRead = useCallback(() => {
-    setNotifications((prev) => {
-      const next = prev.map((n) => ({ ...n, is_read: true }));
-      if (typeof window !== 'undefined') localStorage.setItem(STORAGE_KEYS.NOTIFICATIONS, JSON.stringify(next));
-      return next;
-    });
+    setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
   }, []);
 
   const addNotification = createNotification;
@@ -1189,16 +1656,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         created_at: log.created_at || now.toISOString(),
         ip_address: log.ip_address || '127.0.0.1',
       };
-      setAuditLogs((prev) => {
-        const next = [newLog, ...prev];
-        if (typeof window !== 'undefined') localStorage.setItem(STORAGE_KEYS.AUDIT_LOGS, JSON.stringify(next));
-        return next;
-      });
+      setAuditLogs((prev) => [newLog, ...prev]);
     },
     [currentUser]
   );
 
-  // 10. Master Data Additions
+  // 10. Master Data Additions & Updates
   const addUnit = useCallback((unitData: Omit<Unit, 'id'>) => {
     const newUnit: Unit = {
       ...unitData,
@@ -1207,6 +1670,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setUnits((prev) => [...prev, newUnit]);
   }, []);
 
+  const updateUnit = useCallback(
+    (unitId: string, updates: Partial<Unit>) => {
+      const target = units.find((u) => u.id === unitId);
+      if (!target) return { success: false, message: 'Không tìm thấy đơn vị.' };
+      setUnits((prev) => prev.map((u) => (u.id === unitId ? { ...u, ...updates } : u)));
+      return { success: true, message: `Đã cập nhật thông tin đơn vị ${updates.name || target.name}!` };
+    },
+    [units]
+  );
+
+  const deleteUnit = useCallback(
+    (unitId: string) => {
+      if (unitId === 'unit_doan_truong' || unitId === 'unit_hoi_sinh_vien') {
+        return { success: false, message: 'Không thể xóa đơn vị gốc cấp Trường!' };
+      }
+      const target = units.find((u) => u.id === unitId);
+      if (!target) return { success: false, message: 'Không tìm thấy đơn vị.' };
+      setUnits((prev) => prev.filter((u) => u.id !== unitId));
+      if (selectedUnitId === unitId) setSelectedUnitId('unit_doan_truong');
+      return { success: true, message: `Đã xóa đơn vị ${target.name}.` };
+    },
+    [units, selectedUnitId]
+  );
+
   const addPosition = useCallback((posData: Omit<PositionDefinition, 'id'>) => {
     const newPos: PositionDefinition = {
       ...posData,
@@ -1214,6 +1701,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
     setPositions((prev) => [...prev, newPos]);
   }, []);
+
+  const updatePosition = useCallback(
+    (posId: string, updates: Partial<PositionDefinition>) => {
+      const target = positions.find((p) => p.id === posId);
+      if (!target) return { success: false, message: 'Không tìm thấy chức danh.' };
+      setPositions((prev) => prev.map((p) => (p.id === posId ? { ...p, ...updates } : p)));
+      return { success: true, message: `Đã cập nhật chức danh ${updates.name || target.name}!` };
+    },
+    [positions]
+  );
+
+  const deletePosition = useCallback(
+    (posId: string) => {
+      const target = positions.find((p) => p.id === posId);
+      if (!target) return { success: false, message: 'Không tìm thấy chức danh.' };
+      setPositions((prev) => prev.filter((p) => p.id !== posId));
+      return { success: true, message: `Đã xóa chức danh ${target.name}.` };
+    },
+    [positions]
+  );
 
   const addProfile = useCallback(
     (profileData: Omit<OfficerProfile, 'id' | 'created_at' | 'updated_at' | 'version'>) => {
@@ -1224,7 +1731,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ) {
         return {
           success: false,
-          message: `Mã số sinh viên ${profileData.student_id} đã tồn tại trong hệ thống! Không được tạo trùng hồ sơ.`,
+          message: `Mã số sinh viên/cán bộ ${profileData.student_id} đã tồn tại trong hệ thống! Không được tạo trùng hồ sơ.`,
         };
       }
 
@@ -1233,7 +1740,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const newProfile: OfficerProfile = {
         ...profileData,
         id: newId,
-        profile_code: `CB-${String(codeNum).padStart(4, '0')}`,
+        profile_code: profileData.profile_code || `CB-${String(codeNum).padStart(4, '0')}`,
         version: 1,
         created_at: new Date().toISOString().split('T')[0],
         updated_at: new Date().toISOString().split('T')[0],
@@ -1241,8 +1748,32 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       const updated = [newProfile, ...profiles];
       setProfiles(updated);
-      if (typeof window !== 'undefined') {
-        localStorage.setItem(STORAGE_KEYS.PROFILES, JSON.stringify(updated));
+
+      // Tự động tạo tài khoản người dùng tương ứng nếu có email
+      if (newProfile.email && !users.some((u) => u.email.toLowerCase() === newProfile.email.toLowerCase())) {
+        const newUser: AppUser = {
+          id: `user_${Date.now()}`,
+          profile_id: newId,
+          full_name: newProfile.full_name,
+          student_id: newProfile.student_id || newProfile.staff_id || '',
+          username: newProfile.email.split('@')[0],
+          password: newProfile.student_id || 'Hcmute@123',
+          email: newProfile.email,
+          avatar_code: newProfile.full_name
+            .split(' ')
+            .slice(-2)
+            .map((w) => w[0])
+            .join('')
+            .toUpperCase()
+            .slice(0, 2),
+          roles: ['can_bo_ca_nhan'],
+          current_role: 'can_bo_ca_nhan',
+          scope_unit_id: newProfile.primary_unit_id,
+          scope_unit_name: newProfile.roles?.[0]?.unit_name || 'Đoàn trường',
+          portal_mode: 'user',
+          is_active: true,
+        };
+        setUsers((prev) => [...prev, newUser]);
       }
 
       logActivity(
@@ -1259,7 +1790,304 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         message: `Đã tạo hồ sơ cho cán bộ ${newProfile.full_name} thành công (Mã: ${newProfile.profile_code})!`,
       };
     },
+    [profiles, users, logActivity]
+  );
+
+  const updateProfile = useCallback(
+    (profileId: string, updates: Partial<OfficerProfile>) => {
+      const existing = profiles.find((p) => p.id === profileId);
+      if (!existing) return { success: false, message: 'Không tìm thấy hồ sơ cán bộ.' };
+
+      const updatedProfile: OfficerProfile = {
+        ...existing,
+        ...updates,
+        version: (existing.version || 1) + 1,
+        updated_at: new Date().toISOString().split('T')[0],
+      };
+
+      setProfiles((prev) => prev.map((p) => (p.id === profileId ? updatedProfile : p)));
+
+      // Đồng bộ sang users nếu có thay đổi họ tên, MSSV hoặc email
+      if (updates.full_name || updates.email || updates.student_id) {
+        setUsers((prev) =>
+          prev.map((u) =>
+            u.profile_id === profileId || u.email.toLowerCase() === existing.email.toLowerCase()
+              ? {
+                  ...u,
+                  full_name: updates.full_name || u.full_name,
+                  email: updates.email || u.email,
+                  student_id: updates.student_id || u.student_id,
+                }
+              : u
+          )
+        );
+      }
+
+      logActivity(
+        'sua_ho_so',
+        'Chỉnh sửa hồ sơ cán bộ',
+        profileId,
+        updatedProfile.full_name,
+        'Hồ sơ cán bộ',
+        `Quản trị viên cập nhật trực tiếp hồ sơ của cán bộ ${updatedProfile.full_name} (${updatedProfile.profile_code}).`
+      );
+
+      return {
+        success: true,
+        message: `Đã lưu cập nhật hồ sơ cán bộ ${updatedProfile.full_name} thành công!`,
+      };
+    },
     [profiles, logActivity]
+  );
+
+  const deleteProfile = useCallback(
+    (profileId: string) => {
+      const target = profiles.find((p) => p.id === profileId);
+      if (!target) return { success: false, message: 'Không tìm thấy hồ sơ cán bộ.' };
+      if (target.email?.toLowerCase() === 'thanlx@hcmute.edu.vn' || profileId === 'prof_thanlx') {
+        return {
+          success: false,
+          message: 'Không thể xóa hồ sơ của Quản trị viên Tối cao (thanlx@hcmute.edu.vn)!',
+        };
+      }
+
+      const nextProfiles = profiles.filter((p) => p.id !== profileId);
+      setProfiles(nextProfiles);
+      if (selectedProfileId === profileId) {
+        setSelectedProfileId(nextProfiles[0]?.id || null);
+      }
+
+      logActivity(
+        'sua_ho_so',
+        'Xóa hồ sơ cán bộ',
+        profileId,
+        target.full_name,
+        'Hồ sơ cán bộ',
+        `Xóa hồ sơ cán bộ ${target.full_name} (${target.student_id || target.profile_code}).`
+      );
+
+      return { success: true, message: `Đã xóa hồ sơ cán bộ ${target.full_name}.` };
+    },
+    [profiles, selectedProfileId, logActivity]
+  );
+
+  const importProfilesFromExcel = useCallback(
+    (rows: any[], duplicateMode: 'update' | 'skip') => {
+      let addedCount = 0;
+      let updatedCount = 0;
+      let skippedCount = 0;
+
+      const nextProfiles = [...profiles];
+      const nextUsers = [...users];
+      const todayStr = new Date().toISOString().split('T')[0];
+
+      rows.forEach((row, idx) => {
+        const fullName = String(row.full_name || row['Họ và tên'] || row['Ho va ten'] || '').trim();
+        const studentId = String(row.student_id || row['MSSV'] || row['Mã số SV/CB'] || '').trim();
+        const email = String(
+          row.email || row['Email'] || (studentId ? `${studentId.toLowerCase()}@student.hcmute.edu.vn` : '')
+        ).trim();
+
+        if (!fullName || (!studentId && !email)) {
+          skippedCount++;
+          return;
+        }
+
+        const genderRaw = String(row.gender || row['Giới tính'] || 'Nam').trim();
+        const gender: 'Nam' | 'Nữ' = genderRaw.toLowerCase().includes('nữ') || genderRaw.toLowerCase() === 'nu' ? 'Nữ' : 'Nam';
+        const dob = String(row.date_of_birth || row['Ngày sinh'] || '2005-01-01').trim();
+        const phone = String(row.phone || row['Số điện thoại'] || row['SĐT'] || '').trim();
+        const hometown = String(row.hometown || row['Quê quán'] || 'TP. Hồ Chí Minh').trim();
+        const currentResidence = String(row.current_residence || row['Nơi ở hiện nay'] || hometown).trim();
+        const ethnicity = String(row.ethnicity || row['Dân tộc'] || 'Kinh').trim();
+        const religion = String(row.religion || row['Tôn giáo'] || 'Không').trim();
+        const major = String(row.major || row['Ngành học'] || row['Khoa/Ngành'] || '').trim();
+        const qualification = String(row.qualification || row['Trình độ chuyên môn'] || 'Sinh viên').trim();
+        const politicalTheory = String(row.political_theory || row['Lý luận chính trị'] || 'Sơ cấp').trim();
+        const unitName = String(row.unit_name || row['Đơn vị'] || 'Đoàn trường').trim();
+        const positionTitle = String(row.position_title || row['Chức vụ'] || 'Ủy viên BCH').trim();
+        const subsystemRaw = String(row.subsystem_id || row['Phân hệ'] || 'P03').trim().toUpperCase();
+        const subsystemId: SubsystemId = (['P01', 'P02', 'P03', 'P04', 'P05', 'P06', 'P07'].includes(subsystemRaw)
+          ? subsystemRaw
+          : 'P03') as SubsystemId;
+        const term = String(row.term || row['Nhiệm kỳ'] || '2025 - 2027').trim();
+        const isParty =
+          String(row.is_party_member || row['Đảng viên'] || '')
+            .trim()
+            .toLowerCase() === 'có' ||
+          String(row.is_party_member || row['Đảng viên'] || '')
+            .trim()
+            .toLowerCase() === 'true' ||
+          String(row.is_party_member || row['Đảng viên'] || '')
+            .trim() === '1';
+
+        // Match unit in units
+        const matchedUnit =
+          units.find(
+            (u) =>
+              u.name.toLowerCase() === unitName.toLowerCase() ||
+              u.code.toLowerCase() === unitName.toLowerCase()
+          ) || units[0];
+
+        // Check if profile already exists
+        const existingIdx = nextProfiles.findIndex(
+          (p) =>
+            (studentId && p.student_id?.toLowerCase() === studentId.toLowerCase()) ||
+            (email && p.email?.toLowerCase() === email.toLowerCase())
+        );
+
+        if (existingIdx !== -1) {
+          if (duplicateMode === 'skip') {
+            skippedCount++;
+            return;
+          }
+          // Update existing profile
+          const existing = nextProfiles[existingIdx];
+          const hasRole = existing.roles.some(
+            (r) =>
+              r.unit_name.toLowerCase() === unitName.toLowerCase() &&
+              r.position_title.toLowerCase() === positionTitle.toLowerCase()
+          );
+          const updatedRoles = hasRole
+            ? existing.roles
+            : [
+                ...existing.roles,
+                {
+                  id: `role_imp_${Date.now()}_${idx}`,
+                  profile_id: existing.id,
+                  unit_id: matchedUnit?.id || 'unit_doan_truong',
+                  unit_name: unitName || matchedUnit?.name || 'Đoàn trường',
+                  subsystem_id: subsystemId,
+                  position_title: positionTitle,
+                  term,
+                  start_date: todayStr,
+                  end_date: null,
+                  decision_number: String(row.decision_number || row['Số quyết định'] || 'QĐ-IMP'),
+                  status: 'active' as const,
+                },
+              ];
+
+          nextProfiles[existingIdx] = {
+            ...existing,
+            full_name: fullName || existing.full_name,
+            date_of_birth: dob || existing.date_of_birth,
+            gender,
+            phone: phone || existing.phone,
+            email: email || existing.email,
+            hometown: hometown || existing.hometown,
+            current_residence: currentResidence || existing.current_residence,
+            ethnicity: ethnicity || existing.ethnicity,
+            religion: religion || existing.religion,
+            major: major || existing.major,
+            qualification: qualification || existing.qualification,
+            political_theory: politicalTheory || existing.political_theory,
+            is_party_member: isParty || existing.is_party_member,
+            roles: updatedRoles,
+            version: (existing.version || 1) + 1,
+            updated_at: todayStr,
+          };
+          updatedCount++;
+        } else {
+          // Create new profile
+          const newProfId = `prof_imp_${Date.now()}_${idx}`;
+          const codeNum = nextProfiles.length + 1;
+          const newProfile: OfficerProfile = {
+            id: newProfId,
+            profile_code: `CB-${String(codeNum).padStart(4, '0')}`,
+            full_name: fullName,
+            officer_type:
+              studentId.toUpperCase().startsWith('CB') || qualification.toLowerCase().includes('thạc sĩ')
+                ? 'can_bo_giang_vien'
+                : 'sinh_vien',
+            student_id: studentId,
+            date_of_birth: dob,
+            gender,
+            hometown,
+            current_residence: currentResidence,
+            ethnicity,
+            religion,
+            qualification,
+            major,
+            political_theory: politicalTheory,
+            is_union_member: true,
+            union_join_date: '2020-03-26',
+            is_party_member: isParty,
+            email,
+            phone,
+            verification_status: 'verified',
+            primary_subsystem_id: subsystemId,
+            primary_unit_id: matchedUnit?.id || 'unit_doan_truong',
+            version: 1,
+            created_at: todayStr,
+            updated_at: todayStr,
+            roles: [
+              {
+                id: `role_imp_${Date.now()}_${idx}`,
+                profile_id: newProfId,
+                unit_id: matchedUnit?.id || 'unit_doan_truong',
+                unit_name: unitName || matchedUnit?.name || 'Đoàn trường',
+                subsystem_id: subsystemId,
+                position_title: positionTitle,
+                term,
+                start_date: todayStr,
+                end_date: null,
+                decision_number: String(row.decision_number || row['Số quyết định'] || 'QĐ-IMP'),
+                status: 'active',
+              },
+            ],
+          };
+          nextProfiles.push(newProfile);
+          addedCount++;
+
+          // Also create user account if email doesn't exist
+          if (email && !nextUsers.some((u) => u.email.toLowerCase() === email.toLowerCase())) {
+            nextUsers.push({
+              id: `user_imp_${Date.now()}_${idx}`,
+              profile_id: newProfId,
+              full_name: fullName,
+              student_id: studentId,
+              username: email.split('@')[0] || studentId,
+              password: String(row.password || row['Mật khẩu'] || studentId || 'Hcmute@123').trim(),
+              email,
+              avatar_code: fullName
+                .split(' ')
+                .slice(-2)
+                .map((w) => w[0])
+                .join('')
+                .toUpperCase()
+                .slice(0, 2),
+              roles: ['can_bo_ca_nhan'],
+              current_role: 'can_bo_ca_nhan',
+              scope_unit_id: matchedUnit?.id || 'unit_doan_truong',
+              scope_unit_name: unitName || matchedUnit?.name || 'Đoàn trường',
+              portal_mode: 'user',
+              is_active: true,
+            });
+          }
+        }
+      });
+
+      setProfiles(nextProfiles);
+      setUsers(nextUsers);
+
+      logActivity(
+        'nhap_excel',
+        'Nhập danh sách cán bộ từ Excel',
+        'excel_batch',
+        `Batch (${rows.length} dòng)`,
+        'Hồ sơ cán bộ',
+        `Nhập dữ liệu Excel hoàn tất: Thêm mới ${addedCount} cán bộ, cập nhật ${updatedCount} cán bộ, bỏ qua ${skippedCount} dòng.`
+      );
+
+      return {
+        success: true,
+        message: `Nhập Excel hoàn tất: Thêm mới ${addedCount} hồ sơ, cập nhật ${updatedCount} hồ sơ, bỏ qua ${skippedCount} dòng.`,
+        addedCount,
+        updatedCount,
+        skippedCount,
+      };
+    },
+    [profiles, users, units, logActivity]
   );
 
   const updateSystemConfig = useCallback((newConfig: Partial<SystemConfig>) => {
@@ -1359,97 +2187,75 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       switch (num) {
         case 1: {
-          // Một người có hai chức vụ
-          const ma = profiles.find((p) => p.id === 'prof_minh_anh');
+          const ma = profiles[0];
           const roles = ma ? ma.roles : [];
-          title = 'Tình huống 1: Một người có hai chức vụ';
-          result = `Đồng chí ${ma?.full_name} có ${roles.length} chức vụ: "${roles.map((r) => r.position_title).join('" và "')}". Hồ sơ cá nhân duy nhất: ${ma?.profile_code}. Khi thống kê toàn trường, cán bộ này chỉ được đếm 1 lần trong số người (unique), nhưng tính đủ ${roles.length} trong số lượt chức vụ!`;
+          title = 'Tình huống 1: Một người có nhiều chức vụ (Kiêm nhiệm)';
+          result = `Đồng chí ${ma?.full_name} có ${roles.length} chức vụ. Hồ sơ cá nhân duy nhất: ${ma?.profile_code}. Khi thống kê toàn trường, cán bộ này chỉ được đếm 1 lần trong số người (unique), nhưng tính đủ ${roles.length} trong số lượt chức vụ!`;
           details = { officer: ma?.full_name, unique_count: 1, total_roles: roles.length };
           break;
         }
         case 2: {
-          // Sửa nơi ở và gửi duyệt
           title = 'Tình huống 2: Sửa nơi ở và gửi duyệt';
           result =
-            'Khi cán bộ gửi yêu cầu HS-0012, hồ sơ chính thức vẫn giữ giá trị cũ "TP. Hồ Chí Minh". Khi quản trị duyệt yêu cầu, hồ sơ mới được cập nhật thành "Phường Linh Xuân, TP. Hồ Chí Minh" và đồng bộ ngay trên tất cả màn hình.';
+            'Khi cán bộ gửi yêu cầu cập nhật, hồ sơ chính thức vẫn giữ giá trị cũ. Khi quản trị duyệt yêu cầu, hồ sơ mới được cập nhật và đồng bộ ngay trên tất cả màn hình.';
           break;
         }
         case 3: {
-          // Trả lại yêu cầu cập nhật
           title = 'Tình huống 3: Trả lại yêu cầu cập nhật';
           result =
             'Khi yêu cầu bị trả lại, cán bộ nhận thông báo kèm lý do cụ thể, dữ liệu đã nhập được giữ nguyên và cho phép chỉnh sửa trực tiếp để gửi lại mà không cần nhập lại từ đầu.';
           break;
         }
         case 4: {
-          // Thay thế nhân sự có hiệu lực tương lai (Quyết định 156 hiệu lực 01/11/2026)
-          const today = '2026-10-13';
-          const futureDate = '2026-11-01';
-          const leaderToday = profiles
-            .find((p) => p.id === 'prof_hoang_nam')
-            ?.roles.find((r) => r.unit_id === 'unit_clb_truyen_thong' && r.start_date <= today && (!r.end_date || r.end_date >= today));
-          const leaderFuture = profiles
-            .find((p) => p.id === 'prof_thu_ha')
-            ?.roles.find((r) => r.unit_id === 'unit_clb_truyen_thong' && r.start_date <= futureDate);
-
           title = 'Tình huống 4: Thay thế nhân sự có hiệu lực tương lai';
-          result = `Quyết định 156-QĐ/HSV ký ngày 13/10/2026 nhưng hiệu lực ngày 01/11/2026. Tại hôm nay (${today}), Chủ nhiệm vẫn là đồng chí ${leaderToday ? 'Trần Hoàng Nam' : '?'}. Đến ngày 01/11/2026, hệ thống tự động nhận diện Chủ nhiệm mới là đồng chí ${leaderFuture ? 'Lê Thu Hà' : '?'}. Tra cứu quá khứ vẫn tái lập đúng danh sách!`;
-          details = { effective_from: futureDate, leaderToday: leaderToday?.position_title, leaderFuture: leaderFuture?.position_title };
+          result = `Quyết định nhân sự có ngày hiệu lực tương lai sẽ giữ nguyên người đương nhiệm ở thời điểm hiện tại và tự động chuyển giao chức vụ khi đến ngày hiệu lực. Tra cứu quá khứ vẫn tái lập đúng danh sách!`;
           break;
         }
         case 5: {
-          // Quyết định nhiều dòng có 1 dòng lỗi
           title = 'Tình huống 5: Quyết định nhiều dòng có dòng lỗi';
           result =
             'Hệ thống thực hiện kiểm tra giao dịch nguyên khối (all-or-nothing). Nếu bất kỳ dòng nào thiếu cán bộ, sai chức danh hoặc trùng lặp, quyết định bị chặn hoàn toàn và chỉ rõ dòng bị lỗi để sửa.';
           break;
         }
         case 6: {
-          // Hai quản trị cùng sửa một hồ sơ
           title = 'Tình huống 6: Hai quản trị cùng sửa một hồ sơ (Optimistic Lock)';
           result =
             'Mỗi hồ sơ lưu trữ trường version (v1, v2...). Nếu người thứ hai lưu sau khi phiên bản nguồn đã thay đổi, hệ thống báo lỗi xung đột phiên bản và yêu cầu tải lại thay vì âm thầm ghi đè.';
           break;
         }
         case 7: {
-          // Gửi duyệt lại sau lỗi mạng (Idempotency)
           title = 'Tình huống 7: Gửi hoặc duyệt lại sau lỗi mạng';
           result =
-            'Mỗi yêu cầu có mã định danh duy nhất (VD: HS-0012). Thao tác gửi lại cùng một mã không tạo bản ghi mới hoặc thông báo trùng.';
+            'Mỗi yêu cầu có mã định danh duy nhất. Thao tác gửi lại cùng một mã không tạo bản ghi mới hoặc thông báo trùng.';
           break;
         }
         case 8: {
-          // Cán bộ chuyển đơn vị giữa kỳ
           title = 'Tình huống 8: Cán bộ chuyển đơn vị giữa kỳ đánh giá';
           result =
-            'Danh sách đối tượng đánh giá được chốt tại mốc mở kỳ (01/10/2026). Biến động nhân sự phát sinh sau mốc không làm mất kết quả hoặc tự động gán kết quả cũ sang người mới.';
+            'Danh sách đối tượng đánh giá được chốt tại mốc mở kỳ. Biến động nhân sự phát sinh sau mốc không làm mất kết quả hoặc tự động gán kết quả cũ sang người mới.';
           break;
         }
         case 9: {
-          // Đánh giá đã duyệt nhưng chưa công bố
-          const period = evaluationPeriods.find((p) => p.id === 'period_2026_10');
+          const period = evaluationPeriods[0];
           title = 'Tình huống 9: Đánh giá đã duyệt nhưng chưa công bố';
-          result = `Kỳ đánh giá tháng 10 có trạng thái: ${
+          result = `Kỳ đánh giá hiện tại có trạng thái: ${
             period?.is_published ? 'Đã công bố' : 'Chưa công bố'
           }. Phía cán bộ chỉ thấy "Đang xử lý". Sau khi Thường trực nhấn "Công bố kết quả", xếp loại A/B/C/D mới chính thức hiển thị cho cán bộ và đưa vào báo cáo toàn trường.`;
           break;
         }
         case 10: {
-          // Thu hồi quyền và mở liên kết cũ
           title = 'Tình huống 10: Thu hồi quyền và truy cập liên kết cũ';
           result =
             'Khi tài khoản bị thu hồi quyền quản trị hoặc đổi đơn vị, phiên làm việc lập tức vô hiệu quyền cũ. Khi mở lại đường dẫn trực tiếp, máy chủ chặn truy cập và thông báo không đủ quyền.';
           break;
         }
         case 11: {
-          // Xuất danh sách theo bộ lọc
           title = 'Tình huống 11: Xuất danh sách theo bộ lọc';
           result =
             'Tệp Excel và giao diện hiển thị khớp chính xác 100% số lượng cán bộ, ngày tra cứu và đơn vị được lọc. Các trường nhạy cảm (SĐT, Email, Địa chỉ) mặc định không xuất trừ khi có quyền riêng.';
           break;
         }
         case 12: {
-          // Nhập lại cùng tệp dữ liệu (Excel duplicate prevention)
           title = 'Tình huống 12: Nhập lại cùng tệp dữ liệu';
           result =
             'Hệ thống kiểm tra trùng MSSV và mã cán bộ trước khi nhập, báo rõ số dòng hợp lệ, số dòng trùng cần kiểm tra và số dòng lỗi thiếu dữ liệu, không tạo cán bộ trùng lặp trong hệ thống.';
@@ -1492,6 +2298,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         isAuthenticated: !!authUser,
         isSupabaseConnected,
         signInWithGoogle,
+        signInWithPassword,
+        changePassword,
+        adminResetPassword,
+        updateCurrentUserAvatar,
         signOut,
         loginAsSuperAdminDev,
 
@@ -1528,16 +2338,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         approveProfileUpdateRequest,
         returnProfileUpdateRequest,
         createDecision,
+        deleteDecision,
         submitSelfEvaluation,
         reviewEvaluation,
         publishEvaluationPeriod,
         reopenEvaluationPeriod,
+        createEvaluationPeriod,
+        generateEvaluationsForPeriod,
         createNotification,
+        deleteNotification,
         markNotificationAsRead,
         markAllNotificationsAsRead,
         addUnit,
+        updateUnit,
+        deleteUnit,
         addPosition,
+        updatePosition,
+        deletePosition,
         addProfile,
+        updateProfile,
+        deleteProfile,
+        importProfilesFromExcel,
         updateSystemConfig,
         getActiveRolesAtDate,
         getUniqueOfficerCount,

@@ -360,6 +360,7 @@ export interface AppUser {
   scope_unit_name: string;
   portal_mode: 'user' | 'admin';
   username?: string;
+  password?: string;
   is_active?: boolean;
 }
 

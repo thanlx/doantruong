@@ -61,7 +61,7 @@ const ROLE_OPTIONS: { id: UserRole; label: string; desc: string; color: string }
 ];
 
 export const AdminAccountsView: React.FC = () => {
-  const { users, setUsers, units, currentUser, addAuditLog } = useApp();
+  const { users, setUsers, units, currentUser, addAuditLog, adminResetPassword } = useApp();
 
   const [searchTerm, setSearchTerm] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
@@ -70,11 +70,16 @@ export const AdminAccountsView: React.FC = () => {
   const [showAddModal, setShowAddModal] = useState(false);
   const [actionNotice, setActionNotice] = useState<string | null>(null);
 
+  // Admin reset password state
+  const [resetPwValue, setResetPwValue] = useState('');
+  const [showResetPwBox, setShowResetPwBox] = useState(false);
+
   // New user form state
   const [newFullName, setNewFullName] = useState('');
   const [newEmail, setNewEmail] = useState('');
   const [newUsername, setNewUsername] = useState('');
   const [newStudentId, setNewStudentId] = useState('');
+  const [newPassword, setNewPassword] = useState('Hcmute@2026');
   const [newRoles, setNewRoles] = useState<UserRole[]>(['can_bo_ca_nhan']);
   const [newScopeUnit, setNewScopeUnit] = useState('ALL');
 
@@ -232,6 +237,30 @@ export const AdminAccountsView: React.FC = () => {
     setTimeout(() => setActionNotice(null), 3500);
   };
 
+  const handleAdminResetPw = () => {
+    if (!selectedUser) return;
+    const res = adminResetPassword(selectedUser.id, resetPwValue.trim());
+    if (!res.success) {
+      alert(res.message);
+      return;
+    }
+    setSelectedUser({ ...selectedUser, password: resetPwValue.trim() });
+    setShowResetPwBox(false);
+    setResetPwValue('');
+    addAuditLog({
+      actor_name: currentUser.full_name || 'Lê Xuân Thân',
+      actor_code: currentUser.student_id || 'CB-HCMUTE',
+      action_type: 'doi_mat_khau',
+      target_type: 'ACCOUNT',
+      target_id: selectedUser.id,
+      result: 'SUCCESS',
+      description: `Quản trị viên đặt lại mật khẩu đăng nhập cho tài khoản ${selectedUser.email} (${selectedUser.full_name}).`,
+      ip_address: '10.0.0.1',
+    });
+    setActionNotice(res.message);
+    setTimeout(() => setActionNotice(null), 4000);
+  };
+
   const handleCreateUser = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newFullName.trim() || !newEmail.trim()) {
@@ -254,6 +283,7 @@ export const AdminAccountsView: React.FC = () => {
       id: `user_${Date.now()}`,
       profile_id: `prof_${Date.now()}`,
       username: (newUsername.trim() || emailTrimmed.split('@')[0]).toLowerCase(),
+      password: newPassword.trim() || 'Hcmute@2026',
       full_name: newFullName.trim(),
       email: emailTrimmed,
       student_id: newStudentId.trim() || (newUsername.trim() || 'CB-HCMUTE'),
@@ -272,6 +302,7 @@ export const AdminAccountsView: React.FC = () => {
     setNewEmail('');
     setNewUsername('');
     setNewStudentId('');
+    setNewPassword('Hcmute@2026');
     setNewRoles(['can_bo_ca_nhan']);
     setNewScopeUnit('ALL');
 
@@ -318,11 +349,11 @@ export const AdminAccountsView: React.FC = () => {
             <span className="text-foreground font-semibold">Tài khoản và phân quyền</span>
           </div>
           <h1 className="text-2xl font-black text-foreground tracking-tight flex items-center gap-2">
-            <span>Quản lý Tài khoản & Phân quyền Admin</span>
+            <span>Quản lý Tài khoản, Mật khẩu & Phân quyền Admin</span>
             <Shield className="w-5 h-5 text-primary" />
           </h1>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Phân quyền quản trị viên, người duyệt, quản lý đơn vị và tài khoản người dùng Google.
+            Phân quyền quản trị viên, đổi/cấp lại mật khẩu đăng nhập và quản lý tài khoản người dùng Google.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -402,7 +433,10 @@ export const AdminAccountsView: React.FC = () => {
                   return (
                     <tr
                       key={u.id}
-                      onClick={() => setSelectedUser(u)}
+                      onClick={() => {
+                        setSelectedUser(u);
+                        setShowResetPwBox(false);
+                      }}
                       className={`cursor-pointer transition-colors ${
                         isSelected ? 'bg-primary/10' : 'hover:bg-muted/40'
                       }`}
@@ -491,12 +525,13 @@ export const AdminAccountsView: React.FC = () => {
             <div className="flex items-center justify-between pb-3 border-b border-border">
               <h3 className="font-bold text-foreground text-xs uppercase tracking-wider flex items-center gap-1.5">
                 <Key className="w-4 h-4 text-primary" />
-                <span>Chi tiết & Phân quyền tài khoản</span>
+                <span>Chi tiết, Mật khẩu & Phân quyền</span>
               </h3>
               <button
                 onClick={() => {
                   setSelectedUser(null);
                   setIsEditing(false);
+                  setShowResetPwBox(false);
                 }}
                 className="text-muted-foreground hover:text-foreground p-1 rounded-lg hover:bg-muted cursor-pointer"
               >
@@ -527,7 +562,7 @@ export const AdminAccountsView: React.FC = () => {
                 </div>
                 <div className="text-[11px] text-muted-foreground truncate">{selectedUser.email}</div>
                 <div className="text-[10px] text-primary font-semibold">
-                  MSSV: {selectedUser.student_id || 'CB-HCMUTE'}
+                  MSSV / Mã CB: {selectedUser.student_id || 'CB-HCMUTE'}
                 </div>
               </div>
             </div>
@@ -546,13 +581,56 @@ export const AdminAccountsView: React.FC = () => {
                   {units.find((u) => u.id === selectedUser.scope_unit_id)?.name || 'Toàn trường'}
                 </span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Cổng mặc định:</span>
-                <span className="font-semibold text-foreground">
-                  {selectedUser.portal_mode === 'admin' ? 'Trang quản trị (Admin)' : 'Trang cán bộ (User)'}
-                </span>
+              <div className="flex justify-between items-center">
+                <span className="text-muted-foreground">Mật khẩu đăng nhập:</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowResetPwBox(!showResetPwBox);
+                    setResetPwValue(selectedUser.password || 'Hcmute@2026');
+                  }}
+                  className="text-primary font-bold hover:underline flex items-center gap-1 cursor-pointer"
+                >
+                  <Key className="w-3.5 h-3.5" />
+                  <span>Đổi / Cấp lại mật khẩu</span>
+                </button>
               </div>
             </div>
+
+            {/* Box đổi mật khẩu trực tiếp cho tài khoản này */}
+            {showResetPwBox && (
+              <div className="p-3.5 rounded-xl border border-amber-300 bg-amber-50/70 space-y-2.5 animate-in fade-in">
+                <div className="text-xs font-bold text-amber-900 flex items-center justify-between">
+                  <span>Đặt mật khẩu mới cho {selectedUser.full_name}</span>
+                  <button
+                    type="button"
+                    onClick={() => setShowResetPwBox(false)}
+                    className="text-amber-700 hover:text-amber-900 cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={resetPwValue}
+                    onChange={(e) => setResetPwValue(e.target.value)}
+                    placeholder="Nhập mật khẩu mới (tối thiểu 6 ký tự)..."
+                    className="flex-1 text-xs border border-amber-300 rounded-lg px-3 py-1.5 bg-white font-mono text-slate-900 focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAdminResetPw}
+                    className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold cursor-pointer shrink-0"
+                  >
+                    Lưu mật khẩu
+                  </button>
+                </div>
+                <p className="text-[10px] text-amber-800">
+                  Sau khi lưu, người dùng có thể dùng Email/MSSV và mật khẩu này để đăng nhập trực tiếp.
+                </p>
+              </div>
+            )}
 
             {/* Roles Selection */}
             <div>
@@ -698,7 +776,7 @@ export const AdminAccountsView: React.FC = () => {
               <div>
                 <h3 className="font-black text-foreground text-base">Thêm tài khoản & Phân quyền Admin</h3>
                 <p className="text-xs text-muted-foreground">
-                  Cấp quyền Quản trị viên hoặc quyền quản lý cho cán bộ theo email Google.
+                  Cấp quyền Quản trị viên hoặc quyền quản lý kèm mật khẩu đăng nhập cho cán bộ.
                 </p>
               </div>
               <button
@@ -736,34 +814,43 @@ export const AdminAccountsView: React.FC = () => {
                   placeholder="canbo@hcmute.edu.vn"
                   className="w-full text-xs border border-border rounded-xl px-3.5 py-2.5 bg-background focus:outline-hidden focus:border-primary"
                 />
-                <p className="text-[11px] text-muted-foreground mt-1">
-                  Khi người dùng này đăng nhập bằng Google, hệ thống sẽ tự động cấp các quyền hạn được chọn bên dưới.
-                </p>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-3 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-foreground mb-1">
-                    Tên đăng nhập (Username)
+                    Username
                   </label>
                   <input
                     type="text"
                     value={newUsername}
                     onChange={(e) => setNewUsername(e.target.value)}
-                    placeholder="ví dụ: thanlx, nva..."
-                    className="w-full text-xs border border-border rounded-xl px-3.5 py-2.5 bg-background focus:outline-hidden focus:border-primary"
+                    placeholder="thanlx..."
+                    className="w-full text-xs border border-border rounded-xl px-3 py-2 bg-background focus:outline-hidden focus:border-primary"
                   />
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-foreground mb-1">
-                    Mã số sinh viên / Mã CB
+                    MSSV / Mã CB
                   </label>
                   <input
                     type="text"
                     value={newStudentId}
                     onChange={(e) => setNewStudentId(e.target.value)}
-                    placeholder="23110099 hoặc CB-01"
-                    className="w-full text-xs border border-border rounded-xl px-3.5 py-2.5 bg-background focus:outline-hidden focus:border-primary"
+                    placeholder="23110099"
+                    className="w-full text-xs border border-border rounded-xl px-3 py-2 bg-background focus:outline-hidden focus:border-primary"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-foreground mb-1">
+                    Mật khẩu khởi tạo
+                  </label>
+                  <input
+                    type="text"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    placeholder="Hcmute@2026"
+                    className="w-full text-xs border border-border rounded-xl px-3 py-2 bg-background font-mono focus:outline-hidden focus:border-primary"
                   />
                 </div>
               </div>

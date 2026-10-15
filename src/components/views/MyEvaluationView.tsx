@@ -87,11 +87,17 @@ export default function MyEvaluationView() {
     }
   };
 
-  const handleAddDemoFile = () => {
-    setEvidenceFiles((prev) => [
-      ...prev,
-      { name: `Minh_chung_${prev.length + 1}.pdf`, size: '1.5 MB' },
-    ]);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    const added = Array.from(files).map((f) => ({
+      name: f.name,
+      size: `${Math.max(0.1, Number((f.size / (1024 * 1024)).toFixed(2)))} MB`,
+    }));
+    setEvidenceFiles((prev) => [...prev, ...added]);
+    e.target.value = '';
   };
 
   const handleRemoveFile = (index: number) => {
@@ -283,15 +289,22 @@ export default function MyEvaluationView() {
               </p>
 
               {/* Upload Dropzone */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                onChange={handleFileChange}
+                className="hidden"
+              />
               <div
-                onClick={handleAddDemoFile}
+                onClick={() => fileInputRef.current?.click()}
                 className="rounded-2xl border-2 border-dashed border-border hover:border-primary/50 bg-muted/20 hover:bg-muted/40 p-6 text-center cursor-pointer transition-colors space-y-2"
               >
                 <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary mx-auto">
                   <UploadCloud className="h-5 w-5" />
                 </div>
                 <p className="text-xs font-semibold text-foreground">
-                  Kéo thả tệp vào đây hoặc <span className="text-primary font-bold underline">chọn tệp</span>
+                  Kéo thả tệp vào đây hoặc <span className="text-primary font-bold underline">chọn tệp từ máy tính</span>
                 </p>
               </div>
 
